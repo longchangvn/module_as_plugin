@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: module_platform
+      POSTGRES_PASSWORD: module_platform
+      POSTGRES_DB: module_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/Gateway.Api/Dockerfile
+    ports:
+      - "5100:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    # Persist file stores across restarts by bind-mounting the individual files
+    # (copy them out of the image once, then uncomment):
+    # volumes:
+    #   - ./gateway-data/ocelot.json:/app/ocelot.json
+    #   - ./gateway-data/gateway-services.json:/app/gateway-services.json
+    #   - ./gateway-data/gateway-modules.json:/app/gateway-modules.json
+    depends_on:
+      - platform
+      - auth
+
+  platform:
+    build:
+      context: .
+      dockerfile: src/Platform/Platform.Api/Dockerfile
+    ports:
+      - "5121:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Catalog: Host=postgres;Username=module_platform;Password=module_platform;Database=module_platform
+      Gateway__BaseUrl: http://gateway:8080
+      Auth__BaseUrl: http://auth:8080
+    depends_on:
+      - postgres
+
+  auth:
+    build:
+      context: .
+      dockerfile: src/Auth/Auth.Api/Dockerfile
+    ports:
+      - "5122:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Tenant: Host=postgres;Username=module_platform;Password=module_platform;Database=module_platform
+    depends_on:
+      - postgres
+
+  shell:
+    build:
+      context: .
+      dockerfile: apps/shell/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - gateway
+
+volumes:
+  pgdata:

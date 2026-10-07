@@ -1,0 +1,83 @@
+{
+  "Routes": [
+    {
+      "Key": "platform",
+      "UpstreamPathTemplate": "/api/v1/platform/{rest}",
+      "UpstreamHttpMethod": [],
+      "DownstreamPathTemplate": "/api/v1/platform/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5121
+        }
+      ],
+      "Priority": 1,
+      "Metadata": {
+        "serviceId": "platform",
+        "source": "baseline"
+      }
+    },
+    {
+      "Key": "auth",
+      "UpstreamPathTemplate": "/api/v1/auth/{rest}",
+      "UpstreamHttpMethod": [],
+      "DownstreamPathTemplate": "/api/v1/auth/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5122
+        }
+      ],
+      "Priority": 1,
+      "Metadata": {
+        "serviceId": "auth",
+        "source": "baseline"
+      }
+    },
+    {
+      "Key": "tenant",
+      "UpstreamPathTemplate": "/api/v1/tenant/{rest}",
+      "UpstreamHttpMethod": [],
+      "DownstreamPathTemplate": "/api/v1/tenant/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5121
+        }
+      ],
+      "Priority": 1,
+      "Metadata": {
+        "serviceId": "platform",
+        "source": "baseline"
+      }
+    },
+    {
+      "Key": "rt_loyalty_215f9376",
+      "UpstreamPathTemplate": "/api/v1/loyalty/members/{rest}",
+      "UpstreamHttpMethod": [
+        "GET",
+        "POST"
+      ],
+      "DownstreamPathTemplate": "/api/v1/members/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5200
+        }
+      ],
+      "Priority": 10,
+      "Metadata": {
+        "serviceId": "loyalty",
+        "source": "module-install",
+        "managedBy": "module:loyalty"
+      }
+    }
+  ],
+  "GlobalConfiguration": {
+    "BaseUrl": "http://localhost:5100"
+  }
+}

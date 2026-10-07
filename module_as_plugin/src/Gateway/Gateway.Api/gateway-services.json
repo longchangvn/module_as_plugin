@@ -1,0 +1,22 @@
+{
+  "services": [
+    {
+      "id": "platform",
+      "name": "platform",
+      "host": "localhost",
+      "port": 5121,
+      "scheme": "http",
+      "description": "Module registry + lifecycle + tenants (baseline)",
+      "enabled": true
+    },
+    {
+      "id": "auth",
+      "name": "auth",
+      "host": "localhost",
+      "port": 5122,
+      "scheme": "http",
+      "description": "Tenant users/roles/permissions (baseline)",
+      "enabled": true
+    }
+  ]
+}

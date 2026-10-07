@@ -1,0 +1,88 @@
+# manifest.yml — Module registration contract (v1). All keys required unless marked optional.
+manifestVersion: "1.0"
+
+module:
+  name: loyalty
+  displayName: Loyalty Program
+  description: Points, tiers and rewards for tenant members.
+  version: 1.0.0
+  owner: loyalty-team@company.com
+  license: proprietary
+  icon: loyalty
+  category: engagement
+
+dependencies: []
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+  openapiUrl: /swagger/v1/swagger.json
+
+frontend:
+  remoteUrl: http://localhost:5174/loyalty/1.0.0/remoteEntry.js
+  scope: loyalty_remote
+  modulePrefix: /loyalty
+  routes:
+    - path: /loyalty/members
+      exposes: ./MembersPage
+      requiredPermission: LOYALTY_MEMBER_VIEW
+      menuId: loyalty.members
+  menus:
+    - id: loyalty
+      parentId: null
+      title: Loyalty
+      icon: star
+      route: /loyalty
+      requiredPermission: null
+      order: 20
+    - id: loyalty.members
+      parentId: loyalty
+      title: Members
+      icon: users
+      route: /loyalty/members
+      requiredPermission: LOYALTY_MEMBER_VIEW
+      order: 1
+  uiPermissions: [LOYALTY_MEMBER_VIEW, LOYALTY_MEMBER_UPDATE]
+
+api:
+  routes:
+    - upstream: /api/v1/loyalty/members/{rest}
+      downstream: /api/v1/members/{rest}
+      methods: [GET, POST]
+      auth: true
+      requiredPermission: LOYALTY_MEMBER_VIEW
+      priority: 10
+  seed:
+    roles:
+      - name: Loyalty Operator
+        description: Runs loyalty day-to-day
+        isSystem: true
+    permissions:
+      - code: LOYALTY_MEMBER_VIEW
+        object: LOYALTY_MEMBER
+        action: VIEW
+        name: View loyalty members
+        isMenuAccess: true
+      - code: LOYALTY_MEMBER_UPDATE
+        object: LOYALTY_MEMBER
+        action: UPDATE
+        name: Update loyalty members
+        isMenuAccess: false
+    menus: []
+    userRoles:
+      - userEmail: ops@example.com
+        roleName: Loyalty Operator
+    rolePermissions:
+      - roleName: Loyalty Operator
+        permissions: [LOYALTY_MEMBER_VIEW, LOYALTY_MEMBER_UPDATE]
+    userAdditionalPermissions:
+      - userEmail: auditor@example.com
+        permissions: [LOYALTY_MEMBER_VIEW]
+    users:
+      - email: ops@example.com
+        name: Loyalty Operator
+    gatewayRules: []
+
+upgrade:
+  notes: "1.0.0 initial seed; no data migration."
+  migrateEndpoint: /internal/migrate
