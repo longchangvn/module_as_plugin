@@ -22,6 +22,7 @@ public static class ErrorCodes
     public const string Forbidden = "FORBIDDEN";
     public const string ForbiddenTenant = "FORBIDDEN_TENANT";
     public const string Unauthorized = "UNAUTHORIZED";
+    public const string DuplicateTenant = "DUPLICATE_TENANT";
     public const string ProvisionFailed = "PROVISION_FAILED";
     public const string GatewayApplyFailed = "GATEWAY_APPLY_FAILED";
     public const string AuthzUnavailable = "AUTHZ_UNAVAILABLE";

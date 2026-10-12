@@ -1,0 +1,87 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "debug: free api ports",
+      "type": "shell",
+      "command": "for port in 5100 5121 5122 5201; do for pid in $(lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null); do cmd=$(ps -o command= -p $pid); case \"$cmd\" in *module_as_plugin*) echo \"Freeing :$port (pid $pid)\"; kill -9 $pid;; *) echo \"Port :$port held by foreign process $pid — left alone\";; esac; done; done; pkill -f \"dotnet run --project .*module_as_plugin\" 2>/dev/null; true",
+      "options": {
+        "cwd": "${workspaceFolder}/module_as_plugin"
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "dotnet: build solution",
+      "type": "shell",
+      "command": "dotnet build \"${workspaceFolder}/module_as_plugin/ModulePlatform.sln\"",
+      "dependsOn": ["debug: free api ports"],
+      "options": {
+        "cwd": "${workspaceFolder}/module_as_plugin",
+        "env": {
+          "NUGET_PACKAGES": "${workspaceFolder}/.nuget-packages"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "shell: dev (background)",
+      "type": "npm",
+      "script": "dev",
+      "path": "module_as_plugin/apps/shell/",
+      "isBackground": true,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": ".",
+          "file": 0,
+          "location": 0,
+          "message": 0
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:\\s+http://localhost:5173|ready in \\d+"
+        }
+      }
+    },
+    {
+      "label": "shell: install",
+      "type": "npm",
+      "script": "install",
+      "path": "module_as_plugin/apps/shell/",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

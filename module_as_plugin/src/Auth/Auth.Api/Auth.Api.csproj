@@ -4,6 +4,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- TenantSchemaMigrationsSqlGenerator subclasses the Npgsql generator, whose
+         ctor takes an Internal-namespaced singleton options type. -->
+    <NoWarn>$(NoWarn);EF1001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

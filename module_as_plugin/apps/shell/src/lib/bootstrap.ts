@@ -61,7 +61,16 @@ interface RegistryItem {
 
 interface InstallState {
   moduleId: string;
-  state: string;
+  state: string | number; // backend serializes InstallState enum as a number
+}
+
+// InstallState enum order (Platform.Domain):
+// NotInstalled, Installing, Installed, Disabled, Failed, Uninstalling.
+const INSTALL_STATE_LABELS = ['NOT_INSTALLED', 'INSTALLING', 'INSTALLED', 'DISABLED', 'FAILED', 'UNINSTALLING'];
+
+function installStateLabel(state: string | number): string {
+  if (typeof state === 'number') return INSTALL_STATE_LABELS[state] ?? String(state);
+  return String(state).toUpperCase();
 }
 
 // Platform-session catalog: registry joined with one tenant's install states.
@@ -75,7 +84,7 @@ export async function fetchPlatformCatalog(tenantId: string): Promise<CatalogIte
     displayName: m.displayName,
     description: m.description,
     owner: m.owner,
-    installState: installs.find((i) => i.moduleId === m.id)?.state.toUpperCase() ?? 'NOT_INSTALLED',
+    installState: installStateLabel(installs.find((i) => i.moduleId === m.id)?.state ?? 'NOT_INSTALLED'),
   }));
 }
 

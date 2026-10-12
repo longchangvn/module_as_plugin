@@ -5,10 +5,12 @@ services:
       POSTGRES_USER: module_platform
       POSTGRES_PASSWORD: module_platform
       POSTGRES_DB: module_platform
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:-module_migrator}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
 
   gateway:
     build:
@@ -39,6 +41,12 @@ services:
       ConnectionStrings__Catalog: Host=postgres;Username=module_platform;Password=module_platform;Database=module_platform
       Gateway__BaseUrl: http://gateway:8080
       Auth__BaseUrl: http://auth:8080
+      TenantStores__Host: postgres
+      TenantStores__Port: 5432
+      TenantStores__Username: module_platform
+      TenantStores__Password: module_platform
+      TenantStores__SharedDatabase: module_platform
+      TenantStores__ProvisioningConnection: Host=postgres;Username=module_platform;Password=module_platform;Database=postgres
     depends_on:
       - postgres
 
@@ -51,6 +59,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Tenant: Host=postgres;Username=module_platform;Password=module_platform;Database=module_platform
+      Platform__BaseUrl: http://platform:8080
+      TenantStores__Host: postgres
+      TenantStores__Port: 5432
+      TenantStores__Username: module_platform
+      TenantStores__Password: module_platform
+      TenantStores__SharedDatabase: module_platform
     depends_on:
       - postgres
 

@@ -1,0 +1,49 @@
+# User-owned NuGet fallback cache (see .vscode/tasks.json).
+# The default ~/.nuget/packages contains root-owned entries (from past
+# `sudo dotnet` runs) that break restore. Until ownership is fixed via:
+#   sudo chown -R "$(whoami):staff" ~/.nuget/packages
+# builds use this workspace-local cache instead. Safe to delete.
+/.nuget-packages/
+
+# ---- .NET ----
+bin/
+obj/
+out/
+TestResults/
+*.user
+*.userosscache
+*.suo
+.vs/
+.idea/
+*.publishproj
+
+# ---- Node / Vite (apps/shell, modules/*/web) ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+eslintcache
+
+# ---- Env / secrets (keep *.example tracked) ----
+.env
+.env.local
+.env.*.local
+
+# ---- Docker / local runtime ----
+docker-compose.override.yml
+gateway-data/
+pgdata/
+
+# ---- Logs / coverage ----
+*.log
+coverage/
+.nyc_output/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- VS Code personal (keep launch.json + tasks.json shared) ----
+.vscode/settings.json
+.vscode/*.log

@@ -53,6 +53,39 @@ cd apps/shell && npx tsc --noEmit               # expect clean
 - [x] Semver lib corrections: `SemVersion` has no operators/`IComparable`; all ordering via
   `SemverOrdering` (`ComparePrecedenceTo`); `SemverOrdering.Latest` unit-tested (10 tests pass)
 
+## Done (this session)
+
+- [x] P11 Multi-tenant Phase A (lifecycle + enforcement, greenfield): tenant
+  validation (V-C1..C5, 400 field list) + `409 DUPLICATE_TENANT` (name/slug/
+  domain/pathPrefix, CI); PATCH (immutable dbName/schema/slug → 422);
+  disable (reason required) / enable + audit (`tenant.*`, incl. audits API);
+  usability guard (unknown → 404, disabled → 403) on bootstrap, tenant +
+  platform lifecycle, Auth login/resolve, loyalty module APIs; `X-Tenant-Id`
+  mismatch → 403 (BR-R2); internal status endpoint (30s cache, 503 fail
+  closed); shell tenants UI (create/edit/disable/enable/audit, badges);
+  23 new unit tests (validator + SR-4 resolution order). Verified live
+  end-to-end (disable → login/bootstrap/members/resolve all 403 → enable →
+  200). Remaining: per-tenant DB provisioning (Phase B), Argon2/OIDC (Phase C).
+
+- [x] P12 Multi-tenant Phase B (provisioning, greenfield): `DeploymentMode` /
+  `DbStatus` / `DbError` / `SchemaVersion` fields + migration; validated
+  `dbName`/`schema` (V-C6/V-C7, 400/409 incl. dedicated-scoped dbName and
+  schema uniqueness); `202` create with synchronous `CREATE DATABASE`-if-missing
+  (reuse) / `CREATE SCHEMA` via privileged connection; lazy `MigrateAsync` per
+  tenant store in Auth (schema-stamped DDL generator + per-schema history +
+  `search_path`, per-tenant model cache) with Ready/Failed callbacks;
+  `provision:retry`; bootstrap users via `X-Tenant-Id`; shell deployment radio
+  + store badges. Verified live on Postgres: dedicated DB (9 tables+history),
+  shared schema (9 tables+history, 0 cross-schema FKs), same email isolated in
+  both, disable/enable gates, 46/46 tests. Remaining: Argon2/OIDC (Phase C).
+
+- [x] P13 Tenant bootstrap admin: `bootstrapAdminEmail/Name` at creation
+  (validated, immutable, stored on tenant row), seeded as first tenant user on
+  first store use — first tenant login works immediately; shell fields;
+  `01-module-platform-requirements.md` updated (P-BR3, §9.1, §10.1).
+  Verified live (create → login → user row + Active/Ready; 400/422 guards).
+  48/48 tests.
+
 ## Next up
 
 1. P10: run the `verification_guidline.md` pass and fix gaps.

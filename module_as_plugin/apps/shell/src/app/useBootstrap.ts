@@ -18,12 +18,16 @@ export function useBootstrap() {
   const [modules, setModules] = useState<BootstrapModule[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!sessionStorage.getItem('access_token')) {
+    // Bootstrap needs a tenant JWT (R10). Platform sessions carry no tenant
+    // context, so there is nothing to bootstrap — skip instead of 403ing.
+    if (!sessionStorage.getItem('access_token') || !sessionStorage.getItem('tenant_id')) {
       setLoading(false);
-      return; // bootstrap needs a tenant JWT (R10); login first.
+      return;
     }
+    setLoading(true);
     fetchBootstrap()
       .then(async (bootstrap) => {
         for (const m of bootstrap.modules) {
@@ -38,7 +42,7 @@ export function useBootstrap() {
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [attempt]);
 
-  return { modules, loading, error };
+  return { modules, loading, error, retry: () => { setError(null); setAttempt((a) => a + 1); } };
 }

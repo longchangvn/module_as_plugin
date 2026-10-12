@@ -79,7 +79,7 @@ Greenfield baseline: **Frontend ReactJS, Backend .NET Core.** No dependency on a
 |---|---|
 | P-BR1 | Platform manages **platform users** (ops accounts): create, list, deactivate/reactivate, reset password. Distinct from tenant users (Auth owns tenant users). |
 | P-BR2 | Platform ships exactly **2 basic roles** in v1: `Admin` (all permissions) and `Maintainer` (tenant-read + gateway-full). No custom platform roles in v1. |
-| P-BR3 | Platform manages **tenants**: CRUD + enable/disable, resolution (domain / path `/t/{slug}` / `X-Tenant-Id`), provisioning state (dedicated DB or shared-DB schema). |
+| P-BR3 | Platform manages **tenants**: CRUD + enable/disable, resolution (domain / path `/t/{slug}` / `X-Tenant-Id`), provisioning state (dedicated DB or shared-DB schema), bootstrap admin (first tenant user created from `bootstrapAdminEmail`/`bootstrapAdminName` at creation). |
 | P-BR4 | Platform manages **gateway configuration**: services list, routes list, create/edit/delete, validate-before-apply, hot-apply (no restart), traffic view. |
 | P-BR5 | Platform hosts the **module catalog page** (tenant-scoped view + global registry view): browse available modules (name, description, version, owner, dependencies, status), filter by installed/enabled/available, **Install** button per module. |
 | P-BR6 | Install is **dependency-first**: system resolves `dependencies[]`, installs missing dependencies beforehand in topological order; if any dependency cannot be installed, the whole install is rejected with the blocking chain. |
@@ -191,7 +191,21 @@ POST   /api/v1/platform/tenants/{tid}/modules/{id}/disable   {reason}
 POST   /api/v1/platform/tenants/{tid}/modules/{id}/uninstall {confirmDependents}
 POST   /api/v1/platform/tenants/{tid}/modules/{id}/upgrade   {toVersion}
 GET    /api/v1/platform/tenants                       tenant CRUD (existing semantics)
+POST   /api/v1/platform/tenants                       create tenant → 201 Active (no store config) or 202 Provisioning; accepts deploymentMode/dbName/schema + bootstrapAdminEmail/bootstrapAdminName
+PATCH  /api/v1/platform/tenants/{tid}                 update name/contactEmail/domain/pathPrefix/resolutionMode; slug/dbName/schema/deploymentMode/bootstrapAdmin* immutable → 422
+POST   /api/v1/platform/tenants/{tid}/disable {reason} disable (reason required) → tenant logins/APIs 403; POST .../enable re-activates
+POST   /api/v1/platform/tenants/{tid}/provision:retry  retry store provisioning (Failed → Provisioning)
+GET    /api/v1/platform/tenants/{tid}/audits          recent audit trail (tenant.create/update/disable/enable/provision-retry)
 ```
+
+Tenant creation with a bootstrap admin: `POST /api/v1/platform/tenants`
+`{ name, slug, contactEmail, deploymentMode?, dbName?, schema?, bootstrapAdminEmail?, bootstrapAdminName? }`
+stores the bootstrap identity on the tenant row (immutable after creation). On first
+use of the tenant store (first login or first tenant-scoped write), Auth migrates the
+store and seeds that email as the first tenant user (name defaults to the email local
+part), then the tenant flips to `Active`/`Ready` — so the very first tenant login with
+the bootstrap email succeeds. Passwords are stub-verified in v1 (any password works);
+temporary-password rotation is a follow-up when real password verify lands.
 
 ### 9.2 Tenant self-service catalog (Tenant Admin)
 
@@ -254,7 +268,7 @@ Codes: `UNKNOWN_TENANT, TENANT_DISABLED, UNKNOWN_MODULE, MODULE_ALREADY_INSTALLE
 
 ```text
 platform_users(id PK cuid, email UK CI, name, passwordHash Argon2, role Admin|Maintainer, isActive, lastLoginAt, createdAt, updatedAt)
-tenants(id PK, name UK CI, slug UK, status, resolutionMode, domain UK NULL, pathPrefix UK NULL, dbName, schema, dbStatus, dbError NULL, schemaVersion NULL, contactEmail, createdAt, updatedAt)
+tenants(id PK, name UK CI, slug UK, status, resolutionMode, domain UK NULL, pathPrefix UK NULL, dbName, schema, dbStatus, dbError NULL, schemaVersion NULL, bootstrapAdminEmail NULL, bootstrapAdminName NULL, contactEmail, createdAt, updatedAt)
 platform_modules(id PK slug e.g. loyalty, displayName, description, owner, icon, category, status AVAILABLE|DEPRECATED, createdAt, updatedAt)
 module_versions(id PK cuid, moduleId FK, version semver, manifestYaml TEXT, manifestHash, artifactApiUrl, artifactRemoteUrl, status, publishedBy, publishedAt; UNIQUE(moduleId, version))
 tenant_module_installs(tenantId FK, moduleId, version, state NOT_INSTALLED|INSTALLING|INSTALLED|DISABLED|FAILED|UNINSTALLING, enabled bool, installedAt, updatedAt, error NULL; PK(tenantId, moduleId))

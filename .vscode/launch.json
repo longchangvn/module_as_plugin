@@ -1,0 +1,156 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API: Gateway (5100)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "dotnet: build solution",
+      "program": "${workspaceFolder}/module_as_plugin/src/Gateway/Gateway.Api/bin/Debug/net8.0/Gateway.Api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/module_as_plugin/src/Gateway/Gateway.Api",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "internalConsoleOptions": "openOnSessionStart",
+      "launchBrowser": {
+        "enabled": false
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5100"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\b.+\\b(http.+)",
+        "uriFormat": "%s/swagger"
+      }
+    },
+    {
+      "name": "API: Platform (5121)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "dotnet: build solution",
+      "program": "${workspaceFolder}/module_as_plugin/src/Platform/Platform.Api/bin/Debug/net8.0/Platform.Api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/module_as_plugin/src/Platform/Platform.Api",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "internalConsoleOptions": "openOnSessionStart",
+      "launchBrowser": {
+        "enabled": false
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5121"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\b.+\\b(http.+)",
+        "uriFormat": "%s/swagger"
+      }
+    },
+    {
+      "name": "API: Auth (5122)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "dotnet: build solution",
+      "program": "${workspaceFolder}/module_as_plugin/src/Auth/Auth.Api/bin/Debug/net8.0/Auth.Api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/module_as_plugin/src/Auth/Auth.Api",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "internalConsoleOptions": "openOnSessionStart",
+      "launchBrowser": {
+        "enabled": false
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5122"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\b.+\\b(http.+)",
+        "uriFormat": "%s/swagger"
+      }
+    },
+    {
+      "name": "API: Module Loyalty (5201)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "dotnet: build solution",
+      "program": "${workspaceFolder}/module_as_plugin/src/Modules/Loyalty/Loyalty.Api/bin/Debug/net8.0/Loyalty.Api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/module_as_plugin/src/Modules/Loyalty/Loyalty.Api",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "internalConsoleOptions": "openOnSessionStart",
+      "launchBrowser": {
+        "enabled": false
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5201"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\b.+\\b(http.+)",
+        "uriFormat": "%s/swagger"
+      }
+    },
+    {
+      "name": "Frontend: Shell dev server (vite)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/module_as_plugin/apps/shell",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Local:[\\s]+(http.+)",
+        "uriFormat": "%s"
+      }
+    },
+    {
+      "name": "Frontend: Shell (Chrome)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/module_as_plugin/apps/shell/src",
+      "sourceMaps": true,
+      "trace": false,
+      "preLaunchTask": "shell: dev (background)"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: APIs + Frontend",
+      "configurations": [
+        "API: Gateway (5100)",
+        "API: Platform (5121)",
+        "API: Auth (5122)",
+        "API: Module Loyalty (5201)",
+        "Frontend: Shell (Chrome)"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Core: Gateway + Platform + Auth + Frontend",
+      "configurations": [
+        "API: Gateway (5100)",
+        "API: Platform (5121)",
+        "API: Auth (5122)",
+        "Frontend: Shell (Chrome)"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "APIs Only",
+      "configurations": [
+        "API: Gateway (5100)",
+        "API: Platform (5121)",
+        "API: Auth (5122)",
+        "API: Module Loyalty (5201)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

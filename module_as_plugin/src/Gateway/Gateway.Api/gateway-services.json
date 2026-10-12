@@ -6,7 +6,7 @@
       "host": "localhost",
       "port": 5121,
       "scheme": "http",
-      "description": "Module registry + lifecycle + tenants (baseline)",
+      "description": "Module registry \u002B lifecycle \u002B tenants (baseline)",
       "enabled": true
     },
     {
@@ -17,6 +17,17 @@
       "scheme": "http",
       "description": "Tenant users/roles/permissions (baseline)",
       "enabled": true
+    },
+    {
+      "id": "demoservice",
+      "name": "demoservice",
+      "host": "localhost",
+      "port": 5125,
+      "scheme": "http",
+      "description": null,
+      "enabled": true,
+      "createdAt": "2026-10-08T01:36:52.913465\u002B00:00",
+      "updatedAt": "2026-10-08T01:36:57.9006910\u002B00:00"
     }
   ]
 }

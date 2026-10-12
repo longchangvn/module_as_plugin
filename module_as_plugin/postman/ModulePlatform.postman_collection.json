@@ -1,0 +1,1879 @@
+{
+  "info": {
+    "name": "Module Platform API",
+    "_postman_id": "module-platform-local",
+    "description": "Local dev collection. Run Login requests first (they save tokens). Gateway :5100 unless noted.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5100"
+    },
+    {
+      "key": "baseUrlAuth",
+      "value": "http://localhost:5122"
+    },
+    {
+      "key": "baseUrlLoyalty",
+      "value": "http://localhost:5201"
+    },
+    {
+      "key": "platformToken",
+      "value": ""
+    },
+    {
+      "key": "tenantToken",
+      "value": ""
+    },
+    {
+      "key": "tenantId",
+      "value": "tnt_demo"
+    },
+    {
+      "key": "tenantUserId",
+      "value": ""
+    },
+    {
+      "key": "moduleId",
+      "value": "loyalty"
+    }
+  ],
+  "item": [
+    {
+      "name": "Platform Auth",
+      "item": [
+        {
+          "name": "Platform login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@local\",\n  \"password\": \"admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var j = pm.response.json();",
+                  "if (j.data && j.data.accessToken) pm.collectionVariables.set('platformToken', j.data.accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Platform Users",
+      "item": [
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "users"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ops@local\",\n  \"name\": \"Ops\",\n  \"role\": \"Maintainer\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenants",
+      "item": [
+        {
+          "name": "List tenants",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create tenant (dedicated + bootstrap admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Retail\",\n  \"slug\": \"acme\",\n  \"contactEmail\": \"ops@acme.example\",\n  \"bootstrapAdminEmail\": \"admin@acme.example\",\n  \"bootstrapAdminName\": \"Acme Admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create tenant (shared schema)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Beta Ltd\",\n  \"slug\": \"beta\",\n  \"contactEmail\": \"ops@beta.example\",\n  \"deploymentMode\": \"shared\",\n  \"schema\": \"beta\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Update tenant",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Corp\",\n  \"contactEmail\": \"ops@acme.example\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disable tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "disable"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"contract suspended\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Enable tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/enable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "enable"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retry provisioning",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/provision:retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "provision:retry"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Tenant audits",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/audits",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "audits"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Registry & Lifecycle (platform)",
+      "item": [
+        {
+          "name": "List modules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/modules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "modules"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Publish module (loyalty manifest)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/modules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "modules"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"manifestYaml\": \"# manifest.yml \\u2014 Module registration contract (v1). All keys required unless marked optional.\\nmanifestVersion: \\\"1.0\\\"\\n\\nmodule:\\n  name: loyalty\\n  displayName: Loyalty Program\\n  description: Points, tiers and rewards for tenant members.\\n  version: 1.0.0\\n  owner: loyalty-team@company.com\\n  license: proprietary\\n  icon: loyalty\\n  category: engagement\\n\\ndependencies: []\\n\\nservice:\\n  healthCheck: /healthz\\n  readinessCheck: /readyz\\n  openapiUrl: /swagger/v1/swagger.json\\n\\nfrontend:\\n  remoteUrl: http://localhost:5174/loyalty/1.0.0/remoteEntry.js\\n  scope: loyalty_remote\\n  modulePrefix: /loyalty\\n  routes:\\n    - path: /loyalty/members\\n      exposes: ./MembersPage\\n      requiredPermission: LOYALTY_MEMBER_VIEW\\n      menuId: loyalty.members\\n  menus:\\n    - id: loyalty\\n      parentId: null\\n      title: Loyalty\\n      icon: star\\n      route: /loyalty\\n      requiredPermission: null\\n      order: 20\\n    - id: loyalty.members\\n      parentId: loyalty\\n      title: Members\\n      icon: users\\n      route: /loyalty/members\\n      requiredPermission: LOYALTY_MEMBER_VIEW\\n      order: 1\\n  uiPermissions: [LOYALTY_MEMBER_VIEW, LOYALTY_MEMBER_UPDATE]\\n\\napi:\\n  routes:\\n    - upstream: /api/v1/loyalty/members/{rest}\\n      downstream: /api/v1/members/{rest}\\n      methods: [GET, POST]\\n      auth: true\\n      requiredPermission: LOYALTY_MEMBER_VIEW\\n      priority: 10\\n  seed:\\n    roles:\\n      - name: Loyalty Operator\\n        description: Runs loyalty day-to-day\\n        isSystem: true\\n    permissions:\\n      - code: LOYALTY_MEMBER_VIEW\\n        object: LOYALTY_MEMBER\\n        action: VIEW\\n        name: View loyalty members\\n        isMenuAccess: true\\n      - code: LOYALTY_MEMBER_UPDATE\\n        object: LOYALTY_MEMBER\\n        action: UPDATE\\n        name: Update loyalty members\\n        isMenuAccess: false\\n    menus: []\\n    userRoles:\\n      - userEmail: ops@example.com\\n        roleName: Loyalty Operator\\n    rolePermissions:\\n      - roleName: Loyalty Operator\\n        permissions: [LOYALTY_MEMBER_VIEW, LOYALTY_MEMBER_UPDATE]\\n    userAdditionalPermissions:\\n      - userEmail: auditor@example.com\\n        permissions: [LOYALTY_MEMBER_VIEW]\\n    users:\\n      - email: ops@example.com\\n        name: Loyalty Operator\\n    gatewayRules: []\\n\\nupgrade:\\n  notes: \\\"1.0.0 initial seed; no data migration.\\\"\\n  migrateEndpoint: /internal/migrate\\n\",\n  \"artifactApiUrl\": \"http://localhost:5201\",\n  \"artifactRemoteUrl\": \"http://localhost:5174/loyalty/1.0.0/remoteEntry.js\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Deprecate module",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/modules/{{moduleId}}/deprecate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "modules",
+                "{{moduleId}}",
+                "deprecate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Tenant install states",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/modules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "modules"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Install",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/modules/{{moduleId}}/install",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "modules",
+                "{{moduleId}}",
+                "install"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Upgrade",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/modules/{{moduleId}}/upgrade",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "modules",
+                "{{moduleId}}",
+                "upgrade"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toVersion\": \"1.1.0\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Enable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/modules/{{moduleId}}/enable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "modules",
+                "{{moduleId}}",
+                "enable"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/modules/{{moduleId}}/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "modules",
+                "{{moduleId}}",
+                "disable"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"maintenance\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Uninstall",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/platform/tenants/{{tenantId}}/modules/{{moduleId}}/uninstall",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "platform",
+                "tenants",
+                "{{tenantId}}",
+                "modules",
+                "{{moduleId}}",
+                "uninstall"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenant Self-Service",
+      "item": [
+        {
+          "name": "Browse catalog",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Module detail + plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules/{{moduleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules",
+                "{{moduleId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Install",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules/{{moduleId}}/install",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules",
+                "{{moduleId}}",
+                "install"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Upgrade",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules/{{moduleId}}/upgrade",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules",
+                "{{moduleId}}",
+                "upgrade"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toVersion\": \"1.1.0\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Enable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules/{{moduleId}}/enable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules",
+                "{{moduleId}}",
+                "enable"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disable",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules/{{moduleId}}/disable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules",
+                "{{moduleId}}",
+                "disable"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Uninstall",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/modules/{{moduleId}}/uninstall",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "modules",
+                "{{moduleId}}",
+                "uninstall"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Frontend bootstrap",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tenant/frontend-bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tenant",
+                "frontend-bootstrap"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth Service (:5122 direct)",
+      "item": [
+        {
+          "name": "Tenant login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenantId\": \"{{tenantId}}\",\n  \"email\": \"admin@acme.example\",\n  \"password\": \"anything\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var j = pm.response.json();",
+                  "if (j.data && j.data.accessToken) pm.collectionVariables.set('tenantToken', j.data.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/admin/users",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create user (use X-Tenant-Id header for tenant store)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{tenantId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/admin/users",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"boss@acme.example\",\n  \"name\": \"Boss\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/admin/roles",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "roles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/admin/roles",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "roles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Support\",\n  \"description\": \"Support staff\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/auth/permissions",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "permissions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resolve permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/api/v1/auth/permissions/resolve",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "permissions",
+                "resolve"
+              ],
+              "query": [
+                {
+                  "key": "tenantId",
+                  "value": "{{tenantId}}"
+                },
+                {
+                  "key": "userId",
+                  "value": "{{tenantUserId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Seed apply (internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/internal/seed:apply",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "internal",
+                "seed:apply"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moduleId\": \"loyalty\",\n  \"manifestYaml\": \"# manifest.yml \\u2014 Module registration contract (v1). All keys required unless marked optional.\\nmanifestVersion: \\\"1.0\\\"\\n\\nmodule:\\n  name: loyalty\\n  displayName: Loyalty Program\\n  description: Points, tiers and rewards for tenant members.\\n  version: 1.0.0\\n  owner: loyalty-team@company.com\\n  license: proprietary\\n  icon: loyalty\\n  category: engagement\\n\\ndependencies: []\\n\\nservice:\\n  healthCheck: /healthz\\n  readinessCheck: /readyz\\n  openapiUrl: /swagger/v1/swagger.json\\n\\nfrontend:\\n  remoteUrl: http://localhost:5174/loyalty/1.0.0/remoteEntry.js\\n  scope: loyalty_remote\\n  modulePrefix: /loyalty\\n  routes:\\n    - path: /loyalty/members\\n      exposes: ./MembersPage\\n      requiredPermission: LOYALTY_MEMBER_VIEW\\n      menuId: loyalty.members\\n  menus:\\n    - id: loyalty\\n      parentId: null\\n      title: Loyalty\\n      icon: star\\n      route: /loyalty\\n      requiredPermission: null\\n      order: 20\\n    - id: loyalty.members\\n      parentId: loyalty\\n      title: Members\\n      icon: users\\n      route: /loyalty/members\\n      requiredPermission: LOYALTY_MEMBER_VIEW\\n      order: 1\\n  uiPermissions: [LOYALTY_MEMBER_VIEW, LOYALTY_MEMBER_UPDATE]\\n\\napi:\\n  routes:\\n    - upstream: /api/v1/loyalty/members/{rest}\\n      downstream: /api/v1/members/{rest}\\n      methods: [GET, POST]\\n      auth: true\\n      requiredPermission: LOYALTY_MEMBER_VIEW\\n      priority: 10\\n  seed:\\n    roles:\\n      - name: Loyalty Operator\\n        description: Runs loyalty day-to-day\\n        isSystem: true\\n    permissions:\\n      - code: LOYALTY_MEMBER_VIEW\\n        object: LOYALTY_MEMBER\\n        action: VIEW\\n        name: View loyalty members\\n        isMenuAccess: true\\n      - code: LOYALTY_MEMBER_UPDATE\\n        object: LOYALTY_MEMBER\\n        action: UPDATE\\n        name: Update loyalty members\\n        isMenuAccess: false\\n    menus: []\\n    userRoles:\\n      - userEmail: ops@example.com\\n        roleName: Loyalty Operator\\n    rolePermissions:\\n      - roleName: Loyalty Operator\\n        permissions: [LOYALTY_MEMBER_VIEW, LOYALTY_MEMBER_UPDATE]\\n    userAdditionalPermissions:\\n      - userEmail: auditor@example.com\\n        permissions: [LOYALTY_MEMBER_VIEW]\\n    users:\\n      - email: ops@example.com\\n        name: Loyalty Operator\\n    gatewayRules: []\\n\\nupgrade:\\n  notes: \\\"1.0.0 initial seed; no data migration.\\\"\\n  migrateEndpoint: /internal/migrate\\n\",\n  \"tenantId\": \"{{tenantId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Seed revoke (internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlAuth}}/internal/seed:revoke",
+              "host": [
+                "{{baseUrlAuth}}"
+              ],
+              "path": [
+                "internal",
+                "seed:revoke"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moduleId\": \"loyalty\",\n  \"tenantId\": \"{{tenantId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Gateway Admin",
+      "item": [
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List services",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "services"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List services + health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "services"
+              ],
+              "query": [
+                {
+                  "key": "health",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add service",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "services"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"reporting\",\n  \"host\": \"localhost\",\n  \"port\": 5300,\n  \"scheme\": \"http\",\n  \"description\": \"Reports API\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List routes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "routes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add route",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/routes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "routes"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"upstreamPathTemplate\": \"/api/v1/reporting/{rest}\",\n  \"downstreamPathTemplate\": \"/api/v1/{rest}\",\n  \"methods\": [\n    \"GET\"\n  ],\n  \"priority\": 1,\n  \"serviceId\": \"platform\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reload config",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/config/reload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "config",
+                "reload"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Traffic",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/traffic",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "traffic"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reset traffic",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platformToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/gateway/traffic/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "gateway",
+                "traffic",
+                "reset"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Loyalty Module (:5201 direct)",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlLoyalty}}/healthz",
+              "host": [
+                "{{baseUrlLoyalty}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlLoyalty}}/readyz",
+              "host": [
+                "{{baseUrlLoyalty}}"
+              ],
+              "path": [
+                "readyz"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Members",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tenantToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlLoyalty}}/api/v1/members",
+              "host": [
+                "{{baseUrlLoyalty}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "members"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Seed preview (internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlLoyalty}}/internal/seed:preview",
+              "host": [
+                "{{baseUrlLoyalty}}"
+              ],
+              "path": [
+                "internal",
+                "seed:preview"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Migrate hook (internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrlLoyalty}}/internal/migrate",
+              "host": [
+                "{{baseUrlLoyalty}}"
+              ],
+              "path": [
+                "internal",
+                "migrate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromVersion\": \"1.0.0\",\n  \"toVersion\": \"1.1.0\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

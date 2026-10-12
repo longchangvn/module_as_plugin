@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { ModuleErrorBoundary } from './ModuleErrorBoundary';
+import { Skeleton } from './ui/skeleton';
 
 // Federation runtime container shape (injected by remoteEntry.js at runtime).
 interface FederationContainer {
@@ -25,7 +26,14 @@ export function RemoteRoute({ moduleId, scope, remoteUrl, exposes }: { moduleId:
 
   return (
     <ModuleErrorBoundary moduleId={moduleId}>
-      <Suspense fallback={<div>Loading module…</div>}>
+      <Suspense
+        fallback={
+          <div className="space-y-3" aria-label="Loading module">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-40 w-full" />
+          </div>
+        }
+      >
         <Remote />
       </Suspense>
     </ModuleErrorBoundary>

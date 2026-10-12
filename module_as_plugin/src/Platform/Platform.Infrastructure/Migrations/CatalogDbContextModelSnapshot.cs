@@ -150,13 +150,29 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<string>("BootstrapAdminEmail")
+                        .HasColumnType("text");
+
+                    b.Property<string>("BootstrapAdminName")
+                        .HasColumnType("text");
+
                     b.Property<string>("ContactEmail")
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DbError")
+                        .HasColumnType("text");
+
                     b.Property<string>("DbName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("DbStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DeploymentMode")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -176,6 +192,9 @@ namespace Platform.Infrastructure.Migrations
 
                     b.Property<string>("Schema")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SchemaVersion")
                         .HasColumnType("text");
 
                     b.Property<string>("Slug")

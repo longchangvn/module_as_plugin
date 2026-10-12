@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Shared\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Platform\Platform.Application\Platform.Application.csproj" />
+    <ProjectReference Include="..\..\src\Auth\Auth.Api\Auth.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>

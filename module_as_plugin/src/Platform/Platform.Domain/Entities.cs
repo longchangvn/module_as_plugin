@@ -5,6 +5,8 @@ public enum PlatformRole { Admin, Maintainer }
 
 public enum TenantStatus { Active, Disabled, Provisioning, Failed }
 
+public enum TenantDbStatus { NotStarted, Provisioning, Ready, Failed }
+
 public enum ModuleStatus { Available, Deprecated }
 
 public enum InstallState { NotInstalled, Installing, Installed, Disabled, Failed, Uninstalling }
@@ -33,6 +35,12 @@ public sealed class Tenant
     public string? PathPrefix { get; set; }
     public string DbName { get; set; } = "";
     public string Schema { get; set; } = "public";
+    public string DeploymentMode { get; set; } = "dedicated"; // dedicated | shared
+    public TenantDbStatus DbStatus { get; set; } = TenantDbStatus.Ready;
+    public string? DbError { get; set; }
+    public string? SchemaVersion { get; set; }
+    public string? BootstrapAdminEmail { get; set; }
+    public string? BootstrapAdminName { get; set; }
     public string? ContactEmail { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
