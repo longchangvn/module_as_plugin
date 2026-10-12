@@ -35,6 +35,8 @@ module_as_plugin/
 
 Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`, shell `:5173`, loyalty-web `:5174`.
 
+Full local setup (DB + migrations + sample tenant): see [SETUP.md](SETUP.md).
+
 ## Run (local, no Postgres)
 
 APIs fall back to EF InMemory when `ConnectionStrings:Catalog/Tenant` is unset:
