@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Design;
 namespace Platform.Infrastructure;
 
 // Design-time factory so `dotnet ef` always scaffolds against the relational
-// (PostgreSQL) provider, even though runtime falls back to InMemory locally.
+// (PostgreSQL) provider.
 //
 // Uses the least-privilege migration role (LOGIN + CREATEDB). Override with
 // MIGRATION_CONNECTION_STRING, e.g.:

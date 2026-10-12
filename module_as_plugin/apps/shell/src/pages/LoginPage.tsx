@@ -1,23 +1,24 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, Puzzle } from 'lucide-react';
+import { ArrowRight, LogIn, Puzzle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { platformLogin, tenantLogin } from '../lib/auth';
+import { platformLogin } from '../lib/auth';
 import { useSession } from '../app/session';
 
-// Login: platform (Admin/Maintainer) or tenant session. Card-centered,
-// one primary action, inline error feedback, values preserved on failure. (§5)
+// Platform login only. Tenant users sign in on the Tenant Admin portal
+// (VITE_TENANT_ADMIN_URL, default http://localhost:5175/login) — linked below,
+// never embedded here.
+const TENANT_ADMIN_URL =
+  (import.meta.env.VITE_TENANT_ADMIN_URL as string | undefined) ?? 'http://localhost:5175/login';
+
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { refresh } = useSession();
-  const [mode, setMode] = useState<'platform' | 'tenant'>('platform');
-  const [tenantId, setTenantId] = useState('tnt_demo');
   const [email, setEmail] = useState('admin@local');
   // Dev-seeded credentials prefilled (password verification is stubbed in v1,
   // see Program.cs P5 note) so login is one click in local development.
@@ -26,7 +27,7 @@ export function LoginPage() {
   const [pending, setPending] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from ?? '/modules';
-  const valid = email.trim().length > 0 && password.length > 0 && (mode === 'platform' || tenantId.trim().length > 0);
+  const valid = email.trim().length > 0 && password.length > 0;
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -34,8 +35,7 @@ export function LoginPage() {
     setPending(true);
     setError(null);
     try {
-      if (mode === 'platform') await platformLogin(email.trim(), password);
-      else await tenantLogin(tenantId.trim(), email.trim(), password);
+      await platformLogin(email.trim(), password);
       refresh();
       navigate(from, { replace: true });
     } catch (err) {
@@ -60,41 +60,11 @@ export function LoginPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Login</CardTitle>
-          <CardDescription>Choose a session type, then sign in to continue.</CardDescription>
+          <CardTitle>Platform login</CardTitle>
+          <CardDescription>Platform operators manage tenants, the module registry, and the gateway.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={mode} onValueChange={(v) => { setMode(v as 'platform' | 'tenant'); setError(null); }}>
-            <TabsList className="grid w-full grid-cols-2" aria-label="Session type">
-              <TabsTrigger value="platform">Platform</TabsTrigger>
-              <TabsTrigger value="tenant">Tenant</TabsTrigger>
-            </TabsList>
-            <TabsContent value="platform">
-              <p className="mb-4 text-sm text-muted-foreground">
-                Platform operators manage tenants, the module registry, and the gateway.
-              </p>
-            </TabsContent>
-            <TabsContent value="tenant">
-              <p className="mb-4 text-sm text-muted-foreground">
-                Tenant users manage their own modules, theme, and storefront content.
-              </p>
-            </TabsContent>
-          </Tabs>
-
-          <form onSubmit={submit} className="mt-2 space-y-4">
-            {mode === 'tenant' && (
-              <div className="space-y-1.5">
-                <Label htmlFor="tenant-id">Tenant ID *</Label>
-                <Input
-                  id="tenant-id"
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
-                  placeholder="tnt_demo"
-                  autoComplete="organization"
-                  required
-                />
-              </div>
-            )}
+          <form onSubmit={submit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email">Email *</Label>
               <Input
@@ -128,6 +98,13 @@ export function LoginPage() {
               {pending ? 'Signing in…' : 'Login'}
             </Button>
           </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            Tenant user?{' '}
+            <a className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4" href={TENANT_ADMIN_URL}>
+              Sign in to Tenant Admin
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </a>
+          </p>
         </CardContent>
       </Card>
       <p className="mt-4 text-center text-xs text-muted-foreground">

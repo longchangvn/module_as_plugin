@@ -1,0 +1,10 @@
+bin/
+obj/
+dist/
+node_modules/
+*.user
+.vs/
+.idea/
+.DS_Store
+*.tmp
+gateway-modules.json

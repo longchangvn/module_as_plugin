@@ -4,8 +4,7 @@ using Microsoft.EntityFrameworkCore.Design;
 
 namespace Auth.Api.Infrastructure;
 
-// Design-time factory so `dotnet ef` always scaffolds against PostgreSQL,
-// even though runtime falls back to InMemory locally.
+// Design-time factory so `dotnet ef` always scaffolds against PostgreSQL.
 //
 // Uses the least-privilege migration role (LOGIN + CREATEDB). Override with
 // MIGRATION_CONNECTION_STRING (same variable as the catalog factory).

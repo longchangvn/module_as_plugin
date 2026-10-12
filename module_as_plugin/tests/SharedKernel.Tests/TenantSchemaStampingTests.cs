@@ -47,9 +47,9 @@ public sealed class TenantSchemaStampingTests
     public void Shared_schema_is_stamped()
     {
         var sql = GenerateSql("t9");
-        Assert.Contains("t9.\"GatewayRules\"", sql);
+        Assert.Contains("t9.\"Menus\"", sql);
         Assert.Contains("ON t9.\"Permissions\"", sql);
-        Assert.DoesNotContain("CREATE TABLE \"GatewayRules\"", sql);
+        Assert.DoesNotContain("CREATE TABLE \"Menus\"", sql);
         Assert.DoesNotContain("ON \"Permissions\"", sql);
     }
 
@@ -57,7 +57,7 @@ public sealed class TenantSchemaStampingTests
     public void Dedicated_stays_unqualified()
     {
         var sql = GenerateSql(null);
-        Assert.Contains("CREATE TABLE \"GatewayRules\"", sql);
+        Assert.Contains("CREATE TABLE \"Menus\"", sql);
     }
 
     // Full MigrateAsync path (skipped when the local dev Postgres is absent).

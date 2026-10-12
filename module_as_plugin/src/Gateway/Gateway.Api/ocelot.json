@@ -37,6 +37,24 @@
       }
     },
     {
+      "Key": "admin",
+      "UpstreamPathTemplate": "/api/v1/admin/{rest}",
+      "UpstreamHttpMethod": [],
+      "DownstreamPathTemplate": "/api/v1/admin/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5122
+        }
+      ],
+      "Priority": 1,
+      "Metadata": {
+        "serviceId": "auth",
+        "source": "baseline"
+      }
+    },
+    {
       "Key": "tenant",
       "UpstreamPathTemplate": "/api/v1/tenant/{rest}",
       "UpstreamHttpMethod": [],

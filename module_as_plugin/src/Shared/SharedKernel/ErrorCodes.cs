@@ -28,6 +28,9 @@ public static class ErrorCodes
     public const string AuthzUnavailable = "AUTHZ_UNAVAILABLE";
     public const string UpgradePathUnsupported = "UPGRADE_PATH_UNSUPPORTED";
     public const string LastAdmin = "LAST_ADMIN";
+    public const string UnknownUser = "UNKNOWN_USER";
+    public const string UnknownRole = "UNKNOWN_ROLE";
+    public const string UnknownPermission = "UNKNOWN_PERMISSION";
 }
 
 public sealed record ErrorEnvelope(string Code, string Message, object? Details = null, bool Retryable = false);

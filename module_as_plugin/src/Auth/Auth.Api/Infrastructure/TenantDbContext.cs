@@ -34,7 +34,6 @@ public sealed class TenantDbContext : DbContext
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<UserAdditionalPermission> UserAdditionalPermissions => Set<UserAdditionalPermission>();
     public DbSet<Menu> Menus => Set<Menu>();
-    public DbSet<GatewayRule> GatewayRules => Set<GatewayRule>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -47,6 +46,5 @@ public sealed class TenantDbContext : DbContext
         b.Entity<RolePermission>(e => e.HasKey(x => new { x.RoleId, x.PermissionId }));
         b.Entity<UserAdditionalPermission>(e => e.HasKey(x => new { x.UserId, x.PermissionId }));
         b.Entity<Menu>(e => e.HasKey(x => x.Id));
-        b.Entity<GatewayRule>(e => e.HasKey(x => x.Id));
     }
 }

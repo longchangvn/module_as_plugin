@@ -82,6 +82,46 @@
         "panel": "shared"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "tenant-admin: dev (background)",
+      "type": "npm",
+      "script": "dev",
+      "path": "module_as_plugin/apps/tenant-admin/",
+      "isBackground": true,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": ".",
+          "file": 0,
+          "location": 0,
+          "message": 0
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:\\s+http://localhost:5175|ready in \\d+"
+        }
+      }
+    },
+    {
+      "label": "tenant-admin: install",
+      "type": "npm",
+      "script": "install",
+      "path": "module_as_plugin/apps/tenant-admin/",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ]
 }

@@ -1,8 +1,9 @@
 // Module seed applier — SR-5: idempotent upserts keyed on
 // permissions.code / roles.name / menus.id / link PKs. Rerun-safe (edge case 6).
 // Uninstall revokes per R6: module permission grants removed, module menus +
-// gateway rules removed, module system roles removed; tenant custom roles and
-// unknown codes are kept as inert history (never auto-deleted).
+// module system roles removed; tenant custom roles and unknown codes are kept
+// as inert history (never auto-deleted). Gateway rules are platform-level and
+// are recorded in the catalog by the module lifecycle, not here.
 using Auth.Api.Domain;
 using Auth.Api.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -135,27 +136,9 @@ public sealed class SeedApplier(TenantDbContext db)
             }
         }
 
-        foreach (var r in m.Api.Routes)
-        {
-            var existing = await db.GatewayRules.FirstOrDefaultAsync(
-                x => x.ModuleId == moduleId && x.UpstreamTemplate == r.Upstream, ct);
-            if (existing is null)
-            {
-                db.GatewayRules.Add(new GatewayRule
-                {
-                    Id = Cuid.New("gwr"), ModuleId = moduleId,
-                    UpstreamTemplate = r.Upstream, DownstreamTemplate = r.Downstream,
-                    Methods = System.Text.Json.JsonSerializer.Serialize(r.Methods),
-                    Permission = r.RequiredPermission, Enabled = true, AppliedAt = DateTimeOffset.UtcNow,
-                });
-                added.Add($"gateway-rule:{r.Upstream}");
-            }
-            else
-            {
-                existing.Enabled = true;
-                existing.AppliedAt = DateTimeOffset.UtcNow;
-            }
-        }
+        // Gateway rules are platform-level (Platform.Domain.GatewayRule, recorded
+        // in the catalog by the module lifecycle) — never provisioned into
+        // tenant databases.
 
         await db.SaveChangesAsync(ct);
         return new SeedDiff(added);
@@ -173,7 +156,6 @@ public sealed class SeedApplier(TenantDbContext db)
         db.Permissions.RemoveRange(db.Permissions.Where(p => p.ModuleId == moduleId));
         db.Roles.RemoveRange(db.Roles.Where(r => r.ModuleId == moduleId && r.IsSystem));
         db.Menus.RemoveRange(db.Menus.Where(x => x.ModuleId == moduleId));
-        db.GatewayRules.RemoveRange(db.GatewayRules.Where(x => x.ModuleId == moduleId));
         await db.SaveChangesAsync(ct);
     }
 

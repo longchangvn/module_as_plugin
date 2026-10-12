@@ -16,8 +16,19 @@ public static class TenantValidator
 
     public static readonly string[] DeploymentModes = ["dedicated", "shared"];
 
+    // Base of tenant path prefixes (configurable via TenantRouting:PathPrefix,
+    // default "/t"). Normalized: leading slash, no trailing slash.
+    public const string DefaultPathBase = "/t";
+
+    public static string NormalizePathBase(string? value)
+    {
+        var v = (value ?? "").Trim();
+        if (string.IsNullOrEmpty(v)) return DefaultPathBase;
+        if (!v.StartsWith('/')) v = "/" + v;
+        return v.TrimEnd('/');
+    }
+
     private static readonly Regex SlugRegex = new("^[a-z0-9-]+$", RegexOptions.Compiled);
-    private static readonly Regex PathPrefixRegex = new(@"^/t/[a-z0-9-]+$", RegexOptions.Compiled);
     private static readonly Regex DbNameRegex = new("^[a-z_][a-z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex SchemaRegex = new("^[a-z_][a-z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
@@ -27,18 +38,18 @@ public static class TenantValidator
         string? name, string? slug, string? resolutionMode,
         string? domain, string? pathPrefix, string? contactEmail,
         string? deploymentMode = null, string? dbName = null, string? schema = null,
-        string? bootstrapAdminEmail = null) =>
-        Validate(name, slug, resolutionMode, domain, pathPrefix, contactEmail, deploymentMode, dbName, schema, bootstrapAdminEmail, isUpdate: false);
+        string? bootstrapAdminEmail = null, string? pathBase = null) =>
+        Validate(name, slug, resolutionMode, domain, pathPrefix, contactEmail, deploymentMode, dbName, schema, bootstrapAdminEmail, NormalizePathBase(pathBase), isUpdate: false);
 
     public static List<TenantFieldError> ValidateUpdate(
         string? name, string? resolutionMode,
-        string? domain, string? pathPrefix, string? contactEmail) =>
-        Validate(name, null, resolutionMode, domain, pathPrefix, contactEmail, null, null, null, null, isUpdate: true);
+        string? domain, string? pathPrefix, string? contactEmail, string? pathBase = null) =>
+        Validate(name, null, resolutionMode, domain, pathPrefix, contactEmail, null, null, null, null, NormalizePathBase(pathBase), isUpdate: true);
 
     private static List<TenantFieldError> Validate(
         string? name, string? slug, string? resolutionMode,
         string? domain, string? pathPrefix, string? contactEmail,
-        string? deploymentMode, string? dbName, string? schema, string? bootstrapAdminEmail, bool isUpdate)
+        string? deploymentMode, string? dbName, string? schema, string? bootstrapAdminEmail, string normalizedBase, bool isUpdate)
     {
         var errors = new List<TenantFieldError>();
 
@@ -78,9 +89,13 @@ public static class TenantValidator
             errors.Add(new TenantFieldError("domain", "Domain is required when resolutionMode is 'domain'."));
         }
 
-        // V-C4 pathPrefix /t/{slug} form when supplied.
-        if (!string.IsNullOrWhiteSpace(pathPrefix) && !PathPrefixRegex.IsMatch(pathPrefix.Trim()))
-            errors.Add(new TenantFieldError("pathPrefix", "Path prefix must have the form /t/{slug}."));
+        // V-C4 pathPrefix {base}/{slug} form when supplied.
+        if (!string.IsNullOrWhiteSpace(pathPrefix))
+        {
+            var prefixRegex = new Regex($"^{Regex.Escape(normalizedBase)}/[a-z0-9-]+$");
+            if (!prefixRegex.IsMatch(pathPrefix.Trim()))
+                errors.Add(new TenantFieldError("pathPrefix", $"Path prefix must have the form {normalizedBase}/{{slug}}."));
+        }
 
         // V-C5 contact email.
         if (!isUpdate || contactEmail is not null)
@@ -122,5 +137,6 @@ public static class TenantValidator
         return errors;
     }
 
-    public static string DefaultPathPrefix(string slug) => $"/t/{slug.Trim().ToLowerInvariant()}";
+    public static string DefaultPathPrefix(string slug, string? pathBase = null) =>
+        $"{NormalizePathBase(pathBase)}/{slug.Trim().ToLowerInvariant()}";
 }

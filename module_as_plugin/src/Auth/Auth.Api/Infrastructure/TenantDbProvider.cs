@@ -10,7 +10,7 @@ namespace Auth.Api.Infrastructure;
 
 // Resolves the TenantDbContext for a request: per-tenant DB (dedicated) or
 // schema (shared) when TenantStores is configured, else the legacy singly-
-// wired context (no-Postgres dev / pre-provisioning rows with no mode).
+// wired physical context (pre-provisioning rows with no mode).
 // First use per tenant runs MigrateAsync (lazy provisioning) exactly once and
 // reports Ready/Failed back to Platform. Secrets come only from server-side
 // TenantStores config; the catalog supplies non-secret metadata (NFR4).

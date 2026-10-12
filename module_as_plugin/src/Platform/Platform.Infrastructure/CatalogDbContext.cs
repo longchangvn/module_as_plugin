@@ -1,5 +1,6 @@
-// EF Core catalog store — §10.1. PostgreSQL (Npgsql) in production;
-// Platform.Api wires UseNpgsql or an InMemory fallback via configuration.
+// EF Core catalog store — §10.1. PostgreSQL (Npgsql) only.
+// Platform.Api requires ConnectionStrings:Catalog (no InMemory fallback).
+// Gateway rules are recorded here (platform level), never in tenant databases.
 using Microsoft.EntityFrameworkCore;
 using Platform.Domain;
 
@@ -13,6 +14,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
     public DbSet<ModuleVersion> ModuleVersions => Set<ModuleVersion>();
     public DbSet<TenantModuleInstall> Installs => Set<TenantModuleInstall>();
     public DbSet<TenantAudit> Audits => Set<TenantAudit>();
+    public DbSet<GatewayRule> GatewayRules => Set<GatewayRule>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -37,5 +39,6 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
         });
         b.Entity<TenantModuleInstall>(e => e.HasKey(x => new { x.TenantId, x.ModuleId }));
         b.Entity<TenantAudit>(e => e.HasKey(x => x.Id));
+        b.Entity<GatewayRule>(e => e.HasKey(x => x.Id));
     }
 }

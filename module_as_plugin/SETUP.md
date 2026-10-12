@@ -21,31 +21,8 @@ All commands below run from `module_as_plugin/` unless noted.
 
 ## 1. Start the app
 
-### Option A — fastest (no Postgres, InMemory)
-
-APIs fall back to EF InMemory when `ConnectionStrings:Catalog/Tenant` is
-unset. Good for UI / lifecycle smoke tests; data is lost on restart.
-
-```bash
-dotnet build ModulePlatform.sln
-dotnet run --project src/Platform/Platform.Api      # :5121
-dotnet run --project src/Auth/Auth.Api              # :5122
-dotnet run --project src/Gateway/Gateway.Api        # :5100
-dotnet run --project src/Modules/Loyalty/Loyalty.Api # :5201
-
-# new terminals:
-cd apps/shell && npm install && npm run dev          # :5173
-cd modules/loyalty/web && npm install && npm run dev # :5174 remoteEntry.js
-```
-
-Health check:
-
-```bash
-curl localhost:5121/healthz; curl localhost:5122/healthz
-curl localhost:5100/healthz; curl localhost:5201/healthz
-```
-
-### Option B — full stack with Postgres (recommended)
+APIs require physical PostgreSQL (`ConnectionStrings:Catalog/Tenant` fail
+fast when unset — no InMemory fallback).
 
 ```bash
 cp .env.example .env   # set POSTGRES_PORT=5433 if :5432 is taken
@@ -72,9 +49,21 @@ dotnet run --project src/Platform/Platform.Api
 dotnet run --project src/Auth/Auth.Api
 dotnet run --project src/Gateway/Gateway.Api
 dotnet run --project src/Modules/Loyalty/Loyalty.Api
+
+# new terminals:
+cd apps/shell && npm install && npm run dev          # :5173 platform portal
+cd modules/loyalty/web && npm install && npm run dev # :5174 remoteEntry.js
+cd apps/tenant-admin && npm install && npm run dev   # :5175 tenant backoffice
 ```
 
-Frontend is the same as Option A. Shell proxies `/api/v1 -> :5100`.
+Frontends proxy `/api/v1 -> :5100`.
+
+Health check:
+
+```bash
+curl localhost:5121/healthz; curl localhost:5122/healthz
+curl localhost:5100/healthz; curl localhost:5201/healthz
+```
 
 ## 2. Database creation + migrations + platform seed data
 
@@ -188,6 +177,8 @@ Notes:
   `"deploymentMode": "shared", "schema": "acme"` instead (creates schema).
 - `slug` / `name` / `domain` / `pathPrefix` / `dbName` / `schema` must be
   unique — duplicates return `409 DUPLICATE_TENANT`.
+- `pathPrefix` defaults to `{base}/{slug}` (`TenantRouting:PathPrefix`,
+  default `/t`) when omitted; an explicit value must match that form.
 - Save the returned `data.id` (e.g. `tnt_xxx`) as `TENANT_ID`:
 
 ```bash
@@ -240,8 +231,9 @@ Install applies the manifest `api.seed` via Auth `internal/seed:apply`
 - role `Loyalty Operator` (+ `ops@example.com` user + grants
   `LOYALTY_MEMBER_VIEW/UPDATE`)
 - user `auditor@example.com` (+ direct `LOYALTY_MEMBER_VIEW` grant)
-- menus `loyalty`, `loyalty.members`, gateway rule
-  `/api/v1/loyalty/members/{rest}`
+- menus `loyalty`, `loyalty.members`; the gateway route
+  `/api/v1/loyalty/members/{rest}` is applied to the gateway and recorded in
+  the platform catalog (`GatewayRules`), never in the tenant store
 
 Verify:
 
@@ -264,11 +256,40 @@ curl -s localhost:5201/api/v1/members \
   -H "Authorization: Bearer $TENANT_TOKEN" | python3 -m json.tool
 ```
 
-Shell check: sign in at `http://localhost:5173` (platform `admin@local` or
-tenant `admin@acme.example`), open Tenants → `acme` → Active/Ready, Catalog
-→ loyalty INSTALLED+ENABLED.
+Shell check: sign in at `http://localhost:5173` (platform `admin@local`),
+open Tenants → `acme` → Active/Ready, Catalog → loyalty INSTALLED+ENABLED.
 
-### 3.5 Reset / retry
+### 3.5 Tenant Admin portal (`:5175`)
+
+Tenant users sign in at `http://localhost:5175/login` (tenant ID + email +
+password — no platform mode). The portal manages the tenant store:
+
+- Home: user/role/permission counts + your effective permissions.
+- Users: list/search/create, activate/deactivate, detail page for role
+  assignment and direct (additional) permission grants.
+- Roles: list/search/create, activate/deactivate, detail page for permission
+  grants.
+- Permissions: read-only catalog seeded by installed modules.
+
+```bash
+# assign a role (tenant JWT):
+curl -s -X POST localhost:5122/api/v1/admin/users/<userId>/roles \
+  -H "Authorization: Bearer $TENANT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"roleId":"<roleId>"}' | python3 -m json.tool
+# -> 201; duplicate -> 409; unknown user/role -> 404 UNKNOWN_USER/UNKNOWN_ROLE
+
+# grant a direct permission:
+curl -s -X POST localhost:5122/api/v1/admin/users/<userId>/permissions \
+  -H "Authorization: Bearer $TENANT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"permissionId":"<permissionId>"}' | python3 -m json.tool
+
+# deactivate a user (blocked from login afterwards):
+curl -s -X PATCH localhost:5122/api/v1/admin/users/<userId> \
+  -H "Authorization: Bearer $TENANT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"isActive":false}' | python3 -m json.tool
+```
+
+### 3.6 Reset / retry
 
 ```bash
 # failed provisioning:

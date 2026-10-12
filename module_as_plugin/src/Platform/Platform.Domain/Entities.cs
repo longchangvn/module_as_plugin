@@ -99,3 +99,18 @@ public sealed class TenantAudit
     public DateTimeOffset CreatedAt { get; set; }
     public string? RequestId { get; set; }
 }
+
+// Platform-level gateway rule audit (§10.1): one row per module route,
+// recorded when the lifecycle applies routes to the gateway. Never provisioned
+// into tenant databases.
+public sealed class GatewayRule
+{
+    public string Id { get; set; } = "";
+    public string ModuleId { get; set; } = "";
+    public string UpstreamTemplate { get; set; } = "";
+    public string DownstreamTemplate { get; set; } = "";
+    public string Methods { get; set; } = "[]"; // JSON array
+    public string? Permission { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTimeOffset? AppliedAt { get; set; }
+}

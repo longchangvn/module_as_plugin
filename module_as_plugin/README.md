@@ -14,11 +14,16 @@ shadcn/ui-style component set (Radix primitives, `src/components/ui/`) per
 ```text
 module_as_plugin/
   ModulePlatform.sln
-  apps/shell/                 # SPA host (Module Federation, bootstrap-driven nav)
+  apps/shell/                 # Platform SPA host (Module Federation, bootstrap-driven nav)
     src/app/                  # App, router, useBootstrap (remote loader)
-    src/pages/                # CatalogPage, TenantsPage, GatewayPage
+    src/pages/                # LoginPage (platform only), CatalogPage, TenantsPage, GatewayPage
     src/components/           # RemoteRoute (lazy), ModuleErrorBoundary (isolation)
     src/lib/                  # api-client (envelope), bootstrap (SR-6b types)
+  apps/tenant-admin/          # Tenant backoffice SPA (tenant login + users/roles/permissions)
+    src/app/                  # App, router, tenant session
+    src/pages/                # LoginPage, HomePage, UsersPage, UserDetailPage,
+                              # RolesPage, RoleDetailPage, PermissionsPage
+    src/lib/                  # api-client (envelope), tenant auth
   modules/loyalty/
     manifest.yml              # normative contract example (§10.3)
     web/                      # Federation remote (scope loyalty_remote)
@@ -33,37 +38,32 @@ module_as_plugin/
   docker-compose.yml          # postgres + services
 ```
 
-Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`, shell `:5173`, loyalty-web `:5174`.
+Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`, shell `:5173`, loyalty-web `:5174`, tenant-admin `:5175`.
 
 Full local setup (DB + migrations + sample tenant): see [SETUP.md](SETUP.md).
 
-## Run (local, no Postgres)
+## Run (Postgres required)
 
-APIs fall back to EF InMemory when `ConnectionStrings:Catalog/Tenant` is unset:
+APIs need physical PostgreSQL — `ConnectionStrings:Catalog/Tenant` are required
+(no InMemory fallback; missing value fails fast at startup):
 
 ```bash
 dotnet build ModulePlatform.sln
 dotnet test ModulePlatform.sln
+export ConnectionStrings__Catalog="Host=localhost;Username=module_platform;Password=module_platform;Database=module_platform"
+export ConnectionStrings__Tenant="Host=localhost;Username=module_platform;Password=module_platform;Database=module_platform"
 dotnet run --project src/Platform/Platform.Api      # :5121
 dotnet run --project src/Auth/Auth.Api              # :5122
 dotnet run --project src/Gateway/Gateway.Api        # :5100
 dotnet run --project src/Modules/Loyalty/Loyalty.Api # :5201
 ```
 
-Frontend:
+Frontends:
 
 ```bash
 cd apps/shell && npm install && npm run dev        # :5173 (proxies /api/v1 -> :5100)
 cd modules/loyalty/web && npm install && npm run dev # :5174 remoteEntry.js
-```
-
-## Run (Postgres)
-
-```bash
-docker compose up -d postgres
-export ConnectionStrings__Catalog="Host=localhost;Username=module_platform;Password=module_platform;Database=module_platform"
-export ConnectionStrings__Tenant="Host=localhost;Username=module_platform;Password=module_platform;Database=module_platform"
-dotnet run --project src/Platform/Platform.Api
+cd apps/tenant-admin && npm install && npm run dev # :5175 tenant backoffice (proxies /api/v1 -> :5100)
 ```
 
 ## Key contracts
@@ -77,7 +77,8 @@ dotnet run --project src/Platform/Platform.Api
 
 - Validation on create/update: name 3–100 unique (CI), slug 3–50 `^[a-z0-9-]+$`
   with reserved words blocked, optional domain (lowercase hostname) / pathPrefix
-  (`/t/{slug}`), resolutionMode `domain|path|header`, valid contact email.
+  (`{base}/{slug}`, base from `TenantRouting:PathPrefix`, default `/t`),
+  resolutionMode `domain|path|header`, valid contact email.
   Duplicates → `409 DUPLICATE_TENANT` with `{field}`; shape errors → `400`
   with field list; immutable `slug/dbName/schema` on PATCH → `422 IMMUTABLE_FIELD`.
 - `PATCH /api/v1/platform/tenants/{tid}`, `POST .../disable {reason}` and
@@ -90,6 +91,35 @@ dotnet run --project src/Platform/Platform.Api
 - Auth/module APIs check usability via `GET /internal/tenants/{id}/status`
   (Platform, cluster-internal — not routed by the gateway), cached 30s;
   platform unreachable → `503 AUTHZ_UNAVAILABLE` (fail closed, retryable).
+
+## Login (platform vs tenant)
+
+- Platform portal (`apps/shell`, `:5173/login`): platform operators only
+  (`POST /api/v1/platform/auth/login`). The page links out to Tenant Admin —
+  tenant login is not embedded here.
+- Tenant Admin portal (`apps/tenant-admin`, `:5175/login`): tenant ID + email +
+  password (`POST /api/v1/auth/login`), no platform mode and no link back.
+  Successful login lands on the tenant Home (counts + effective permissions).
+- Tenant Admin manages the tenant store: users (list/create/activate/deactivate),
+  roles (list/create/activate/deactivate), read-only permission catalog, plus
+  user-role assignment and direct (additional) user-permission grants on the
+  detail pages. Backend: `GET/POST /api/v1/admin/users/{id}/roles`,
+  `DELETE .../roles/{roleId}`, `GET/POST /api/v1/admin/roles/{id}/permissions`,
+  `DELETE .../permissions/{permissionId}`,
+  `GET/POST /api/v1/admin/users/{id}/permissions`,
+  `DELETE .../permissions/{permissionId}`,
+  `PATCH /api/v1/admin/users/{id}` (`name`, `isActive`),
+  `PATCH /api/v1/admin/roles/{id}` (`description`, `isActive`).
+  Unknown user/role/permission → `404 UNKNOWN_USER/UNKNOWN_ROLE/UNKNOWN_PERMISSION`;
+  duplicate grant → `409`; revoked link → `404`.
+
+## Tenant routing prefix
+
+- `TenantRouting:PathPrefix` (default `/t`, e.g. `TenantRouting__PathPrefix=/tenants`):
+  base of tenant path prefixes. Create/PATCH validate `pathPrefix` against
+  `{base}/{slug}` and default blank prefixes to `{base}/{slug}` (name/slug stay
+  unique per BR-T1). The shell create dialog prefills the prefix from the slug
+  until edited by hand.
 
 ## Tenant store provisioning (dedicated DB / shared schema)
 
@@ -104,10 +134,9 @@ dotnet run --project src/Platform/Platform.Api
   + per-schema `__EFMigrationsHistory`, `search_path` backstop) and reports
   back: `Ready/Active` (+ `schemaVersion`) or `Failed` (+ `dbError`).
 - Without `TenantStores` config, creation marks the tenant `Ready/Active`
-  immediately and Auth uses the legacy single store (no-Postgres dev).
+  immediately on the shared store.
 - Bootstrap users are created with `X-Tenant-Id` into the tenant's store.
-  Retry: `POST /platform/tenants/{tid}/provision:retry`. Restarts lose
-  InMemory catalog rows; tenant DBs/schemas in Postgres persist.
+  Retry: `POST /platform/tenants/{tid}/provision:retry`.
 - Bootstrap admin: pass `bootstrapAdminEmail` (+ optional `bootstrapAdminName`)
   at creation; it is seeded as the first tenant user on first store use, so the
   first tenant login with that email succeeds (any password in v1).

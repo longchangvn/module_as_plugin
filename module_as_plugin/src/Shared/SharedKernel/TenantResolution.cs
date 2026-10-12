@@ -2,7 +2,7 @@
 //  1. X-Tenant-Id header (or route value) → look up by id then slug.
 //     Present but unknown → fail closed, no fall-through.
 //  2. Host domain match (lowercased, port stripped).
-//  3. /t/{slug} path prefix.
+//  3. {base}/{slug} path prefix (base configurable, default "/t").
 //  4. Unresolved.
 // Pure logic over caller-supplied lookups so it is unit-testable.
 namespace SharedKernel;
@@ -24,18 +24,19 @@ public static class TenantResolution
         return h;
     }
 
-    public static string? PathSlug(string? path)
+    public static string? PathSlug(string? path, string? pathBase = null)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length >= 2 && segments[0] == "t") return segments[1].ToLowerInvariant();
+        var baseSeg = TenantValidator.NormalizePathBase(pathBase).TrimStart('/');
+        if (segments.Length >= 2 && segments[0] == baseSeg) return segments[1].ToLowerInvariant();
         return null;
     }
 
     // Returns the ordered candidate list. The caller looks each key up
     // (id then slug) and stops at the first hit; a header key that misses
     // must fail closed (UNKNOWN_TENANT) without consulting host/path.
-    public static IReadOnlyList<ResolvedTenantRef> Candidates(string? headerTenant, string? host, string? path)
+    public static IReadOnlyList<ResolvedTenantRef> Candidates(string? headerTenant, string? host, string? path, string? pathBase = null)
     {
         var list = new List<ResolvedTenantRef>();
         if (!string.IsNullOrWhiteSpace(headerTenant))
@@ -43,7 +44,7 @@ public static class TenantResolution
         var h = NormalizeHost(host);
         if (!string.IsNullOrEmpty(h))
             list.Add(new ResolvedTenantRef(TenantResolutionSource.Host, h));
-        var slug = PathSlug(path);
+        var slug = PathSlug(path, pathBase);
         if (!string.IsNullOrEmpty(slug))
             list.Add(new ResolvedTenantRef(TenantResolutionSource.Path, slug));
         return list;

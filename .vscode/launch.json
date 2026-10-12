@@ -41,7 +41,10 @@
       },
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5121"
+        "ASPNETCORE_URLS": "http://localhost:5121",
+        "ConnectionStrings__Catalog": "Host=localhost;Port=5433;Username=module_platform;Password=module_platform;Database=module_platform",
+        "TenantStores__ProvisioningConnection": "Host=localhost;Port=5433;Username=module_platform;Password=module_platform;Database=postgres",
+        "TenantStores__SharedDatabase": "module_platform"
       },
       "serverReadyAction": {
         "action": "openExternally",
@@ -65,7 +68,13 @@
       },
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5122"
+        "ASPNETCORE_URLS": "http://localhost:5122",
+        "ConnectionStrings__Tenant": "Host=localhost;Port=5433;Username=module_platform;Password=module_platform;Database=module_platform",
+        "TenantStores__Host": "localhost",
+        "TenantStores__Port": "5433",
+        "TenantStores__Username": "module_platform",
+        "TenantStores__Password": "module_platform",
+        "TenantStores__SharedDatabase": "module_platform"
       },
       "serverReadyAction": {
         "action": "openExternally",
@@ -118,6 +127,28 @@
       "sourceMaps": true,
       "trace": false,
       "preLaunchTask": "shell: dev (background)"
+    },
+    {
+      "name": "Frontend: TenantAdmin dev server (vite)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/module_as_plugin/apps/tenant-admin",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Local:[\\s]+(http.+)",
+        "uriFormat": "%s"
+      }
+    },
+    {
+      "name": "Frontend: TenantAdmin (Chrome)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5175",
+      "webRoot": "${workspaceFolder}/module_as_plugin/apps/tenant-admin/src",
+      "sourceMaps": true,
+      "trace": false,
+      "preLaunchTask": "tenant-admin: dev (background)"
     }
   ],
   "compounds": [
@@ -128,7 +159,8 @@
         "API: Platform (5121)",
         "API: Auth (5122)",
         "API: Module Loyalty (5201)",
-        "Frontend: Shell (Chrome)"
+        "Frontend: Shell (Chrome)",
+        "Frontend: TenantAdmin (Chrome)"
       ],
       "stopAll": true
     },

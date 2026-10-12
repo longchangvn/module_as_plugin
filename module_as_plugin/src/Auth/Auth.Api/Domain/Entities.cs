@@ -1,5 +1,7 @@
 // Tenant store — §10.2 / A-BR4. No tenantId column: isolation by DB/schema.
 // Seeded/updated by each module's manifest seed section (upsert by code/name/id).
+// Gateway rules are NOT provisioned here — they live in the platform catalog
+// (Platform.Domain.GatewayRule, recorded by the module lifecycle).
 namespace Auth.Api.Domain;
 
 public sealed class TenantUser
@@ -66,16 +68,4 @@ public sealed class Menu
     public string? RequiredPermission { get; set; } // permissions.code
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
-}
-
-public sealed class GatewayRule
-{
-    public string Id { get; set; } = "";
-    public string ModuleId { get; set; } = "";
-    public string UpstreamTemplate { get; set; } = "";
-    public string DownstreamTemplate { get; set; } = "";
-    public string Methods { get; set; } = "[]"; // JSON array
-    public string? Permission { get; set; }
-    public bool Enabled { get; set; } = true;
-    public DateTimeOffset? AppliedAt { get; set; }
 }

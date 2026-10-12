@@ -260,6 +260,7 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
   const [schema, setSchema] = useState('');
   const [domain, setDomain] = useState('');
   const [pathPrefix, setPathPrefix] = useState('');
+  const [pathTouched, setPathTouched] = useState(false);
   const [contactEmail, setContactEmail] = useState('');
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState('');
   const [bootstrapAdminName, setBootstrapAdminName] = useState('');
@@ -275,6 +276,7 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
     setSchema(tenant?.schema && tenant.schema !== 'public' ? tenant.schema : '');
     setDomain(tenant?.domain ?? '');
     setPathPrefix(tenant?.pathPrefix ?? '');
+    setPathTouched(false);
     setContactEmail(tenant?.contactEmail ?? '');
     setBootstrapAdminEmail('');
     setBootstrapAdminName('');
@@ -340,7 +342,18 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
             {!isEdit && (
               <div className="space-y-1.5">
                 <Label htmlFor="tenant-slug">Slug *</Label>
-                <Input id="tenant-slug" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} placeholder="acme" required />
+                <Input
+                  id="tenant-slug"
+                  value={slug}
+                  onChange={(e) => {
+                    const next = e.target.value.toLowerCase();
+                    setSlug(next);
+                    // Path prefix defaults from the slug until edited by hand.
+                    if (!pathTouched) setPathPrefix(next.trim() ? `/t/${next.trim()}` : '');
+                  }}
+                  placeholder="acme"
+                  required
+                />
                 {slug.length > 0 && !slugValid && (
                   <p className="text-xs text-destructive" role="alert">3–50 lowercase letters, numbers, hyphens; reserved words blocked.</p>
                 )}
@@ -375,7 +388,13 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
           {resolutionMode === 'path' && (
             <div className="space-y-1.5">
               <Label htmlFor="tenant-path">Path prefix</Label>
-              <Input id="tenant-path" value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} placeholder={`/t/${slug || 'slug'} (auto)`} />
+              <Input
+                id="tenant-path"
+                value={pathPrefix}
+                onChange={(e) => { setPathPrefix(e.target.value); setPathTouched(true); }}
+                placeholder={`/t/${slug || 'slug'} (auto)`}
+              />
+              <p className="text-xs text-muted-foreground">Defaults to /t/{'{slug}'} — blank means auto. Must be unique.</p>
             </div>
           )}
           {!isEdit && (

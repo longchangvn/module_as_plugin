@@ -69,6 +69,49 @@ public sealed class TenantValidationTests
         Assert.Contains(errors, e => e.Field == "pathPrefix");
     }
 
+    [Theory]
+    [InlineData(null, "/t")]
+    [InlineData("", "/t")]
+    [InlineData("t", "/t")]
+    [InlineData("/t", "/t")]
+    [InlineData("/t/", "/t")]
+    [InlineData("/tenants", "/tenants")]
+    public void Path_base_normalized(string? configured, string expected)
+    {
+        Assert.Equal(expected, TenantValidator.NormalizePathBase(configured));
+    }
+
+    [Fact]
+    public void Custom_path_base_accepted_in_prefix()
+    {
+        var errors = TenantValidator.ValidateCreate(
+            "Acme", "acme", "path", null, "/tenants/acme", "ops@acme.example", pathBase: "/tenants");
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Default_base_rejected_under_custom_base()
+    {
+        var errors = TenantValidator.ValidateCreate(
+            "Acme", "acme", "path", null, "/t/acme", "ops@acme.example", pathBase: "/tenants");
+        Assert.Contains(errors, e => e.Field == "pathPrefix");
+    }
+
+    [Fact]
+    public void Default_path_prefix_uses_configured_base()
+    {
+        Assert.Equal("/t/acme", TenantValidator.DefaultPathPrefix("acme"));
+        Assert.Equal("/tenants/acme", TenantValidator.DefaultPathPrefix("Acme", "/tenants"));
+    }
+
+    [Fact]
+    public void Path_slug_uses_configured_base()
+    {
+        Assert.Equal("acme", TenantResolution.PathSlug("/t/acme/orders"));
+        Assert.Null(TenantResolution.PathSlug("/t/acme/orders", "/tenants"));
+        Assert.Equal("acme", TenantResolution.PathSlug("/tenants/acme/orders", "/tenants"));
+    }
+
     [Fact]
     public void Bad_email_rejected()
     {

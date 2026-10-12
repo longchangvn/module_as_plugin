@@ -10,6 +10,7 @@ cd module_as_plugin
 dotnet build ModulePlatform.sln --nologo -v q   # expect 0 warnings, 0 errors
 dotnet test ModulePlatform.sln --nologo -v q    # expect all pass
 cd apps/shell && npx tsc --noEmit               # expect clean
+cd ../tenant-admin && npx tsc --noEmit          # expect clean
 ```
 
 ## Done
@@ -86,6 +87,22 @@ cd apps/shell && npx tsc --noEmit               # expect clean
   Verified live (create → login → user row + Active/Ready; 400/422 guards).
   48/48 tests.
 
+- [x] P14 Login split + TenantAdmin portal + assignments + configurable path prefix:
+  shell login is platform-only with a link out to Tenant Admin (no tenant tab);
+  new `apps/tenant-admin` SPA (:5175, same React/Vite/Tailwind/shadcn stack):
+  tenant-only login (no platform link) → Home (counts + effective permissions),
+  Users (CRUD list/create/activate-deactivate + detail with role assignment and
+  direct permission grants), Roles (ditto + permission grants), read-only
+  Permissions catalog. Backend: `TenantRouting:PathPrefix` config (default
+  `/t`) drives validation/defaulting/resolution; new Auth endpoints
+  (`users/{id}/roles`, `roles/{id}/permissions`, `users/{id}/permissions`
+  GET/POST/DELETE + `PATCH users/{id}`/`roles/{id}`; `UNKNOWN_USER/ROLE/
+  PERMISSION`, dup `409`). Gateway rules moved to platform catalog
+  (`MoveGatewayRulesToPlatform` + `DropGatewayRulesFromTenant`; lifecycle
+  records rules on apply, removes on uninstall). Docs (README/SETUP/PROGRESS/
+  Postman) updated. Verified live (assign/revoke/activate flows, dup-name 409,
+  custom-base 201+400; QA rows cleaned). 58/58 tests + both `tsc` clean.
+
 ## Next up
 
 1. P10: run the `verification_guidline.md` pass and fix gaps.
@@ -96,8 +113,8 @@ cd apps/shell && npx tsc --noEmit               # expect clean
 
 ## Notes / decisions
 
-- Ports: gateway :5100, platform :5121, auth :5122, loyalty :5201, shell :5173, remote :5174.
+- Ports: gateway :5100, platform :5121, auth :5122, loyalty :5201, shell :5173, remote :5174, tenant-admin :5175.
 - `:5121` on this machine is occupied by another `LoyaltyOS.Platform.API`; smoke tests use `--no-launch-profile ASPNETCORE_URLS=http://localhost:51xx`.
-- EF: InMemory when no connection string; Npgsql otherwise. No migrations yet (P9).
+- EF: physical PostgreSQL only (`ConnectionStrings:Catalog/Tenant` required, fail fast; no InMemory fallback).
 - Gateway module install states are in-memory (restart loses them) until P7.
 - Password verification is stubbed (random hash at create); real Argon2 verify is a P5 follow-up note, not silently claimed.

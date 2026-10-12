@@ -22,41 +22,6 @@ namespace Auth.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Auth.Api.Domain.GatewayRule", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("AppliedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DownstreamTemplate")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("Enabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Methods")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ModuleId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Permission")
-                        .HasColumnType("text");
-
-                    b.Property<string>("UpstreamTemplate")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("GatewayRules");
-                });
-
             modelBuilder.Entity("Auth.Api.Domain.Menu", b =>
                 {
                     b.Property<string>("Id")
