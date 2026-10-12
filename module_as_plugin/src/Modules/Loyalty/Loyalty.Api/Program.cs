@@ -8,8 +8,10 @@ using Loyalty.Api.Endpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
+using ModulePlatform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -29,6 +31,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("platform", c => c.Timeout = TimeSpan.FromSeconds(5));
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseAuthentication();

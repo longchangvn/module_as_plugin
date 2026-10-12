@@ -34,6 +34,9 @@ module_as_plugin/
   src/Auth/Auth.Api/          # Tenant users/roles/permissions + resolve (:5122, Domain/Infrastructure folders)
   src/Gateway/Gateway.Api/    # Ocelot proxy + admin API + traffic (:5100, ocelot.json + registry)
   src/Modules/Loyalty/        # Sample module API (:5201, health/ready/seed-preview/migrate)
+  src/Aspire/                 # .NET Aspire orchestration (AppHost + ServiceDefaults)
+    ModulePlatform.AppHost/   # Postgres (:5434, volume) + 4 APIs + 3 frontends + dashboard
+    ModulePlatform.ServiceDefaults/ # resilience, service discovery, OTel, /health + /alive
   tests/SharedKernel.Tests/   # validator + resolver + permission + menu tests
   docker-compose.yml          # postgres + services
 ```
@@ -42,7 +45,23 @@ Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`, shell `
 
 Full local setup (DB + migrations + sample tenant): see [SETUP.md](SETUP.md).
 
-## Run (Postgres required)
+## Run (Aspire, recommended)
+
+One command starts Postgres (`:5434`, volume `module-platform-pgdata`), all 4
+APIs on their fixed ports, the 3 Vite frontends, and the Aspire dashboard
+(telemetry + resource graph). First run initializes an empty database; both
+APIs auto-apply EF migrations and the dev seed (`admin@local` + demo tenant):
+
+```bash
+dotnet run --project src/Aspire/ModulePlatform.AppHost
+```
+
+`TenantStores` (provisioning + per-tenant reads) is wired by the AppHost to the
+same Postgres, so tenant provisioning works with no extra config. The
+standalone `msa-postgres` container (`:5433`) and F5 launch profiles are
+unaffected — use those when you want to debug a single service.
+
+## Run (manual, Postgres required)
 
 APIs need physical PostgreSQL — `ConnectionStrings:Catalog/Tenant` are required
 (no InMemory fallback; missing value fails fast at startup):

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Sdk Name="Aspire.AppHost.Sdk" Version="9.5.2" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAspireHost>true</IsAspireHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="9.5.2" />
+    <PackageReference Include="Aspire.Hosting.NodeJs" Version="9.5.2" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="9.5.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Auth\Auth.Api\Auth.Api.csproj" />
+    <ProjectReference Include="..\..\Gateway\Gateway.Api\Gateway.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Loyalty\Loyalty.Api\Loyalty.Api.csproj" />
+    <ProjectReference Include="..\..\Platform\Platform.Api\Platform.Api.csproj" />
+  </ItemGroup>
+
+</Project>

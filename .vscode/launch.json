@@ -129,6 +129,18 @@
       "preLaunchTask": "shell: dev (background)"
     },
     {
+      "name": "Aspire: Full Stack (AppHost)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "dotnet: build solution",
+      "program": "${workspaceFolder}/module_as_plugin/src/Aspire/ModulePlatform.AppHost/bin/Debug/net9.0/ModulePlatform.AppHost.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/module_as_plugin/src/Aspire/ModulePlatform.AppHost",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
       "name": "Frontend: TenantAdmin dev server (vite)",
       "type": "node-terminal",
       "request": "launch",
@@ -182,6 +194,11 @@
         "API: Auth (5122)",
         "API: Module Loyalty (5201)"
       ],
+      "stopAll": true
+    },
+    {
+      "name": "Aspire: Full Stack",
+      "configurations": ["Aspire: Full Stack (AppHost)"],
       "stopAll": true
     }
   ]

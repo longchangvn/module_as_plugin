@@ -87,8 +87,8 @@ cd ../tenant-admin && npx tsc --noEmit          # expect clean
   Verified live (create → login → user row + Active/Ready; 400/422 guards).
   48/48 tests.
 
-- [x] P14 Login split + TenantAdmin portal + assignments + configurable path prefix:
-  shell login is platform-only with a link out to Tenant Admin (no tenant tab);
+- [x] P14 Login split + TenantAdmin portal + assignments + configurable path prefix
+  (see above for detail).
   new `apps/tenant-admin` SPA (:5175, same React/Vite/Tailwind/shadcn stack):
   tenant-only login (no platform link) → Home (counts + effective permissions),
   Users (CRUD list/create/activate-deactivate + detail with role assignment and
@@ -103,9 +103,37 @@ cd ../tenant-admin && npx tsc --noEmit          # expect clean
   Postman) updated. Verified live (assign/revoke/activate flows, dup-name 409,
   custom-base 201+400; QA rows cleaned). 58/58 tests + both `tsc` clean.
 
+- [ ] P15 .NET Aspire orchestration (IN PROGRESS, builds clean, not yet run
+  green): `src/Aspire/ModulePlatform.AppHost` (net9.0, Aspire 9.5.2) + fresh
+  `src/Aspire/ModulePlatform.ServiceDefaults` (net8.0+net9.0; resilience,
+  discovery, OTel, `/health`+`/alive`) wired into all 4 APIs via
+  `AddServiceDefaults()`/`MapDefaultEndpoints()`. AppHost: Postgres pinned to
+  host `:5434` (volume `module-platform-pgdata`, fixed dev password),
+  `Catalog`/`Tenant` database resources, 4 APIs + 3 npm apps on fixed ports,
+  full `TenantStores` env wired to Aspire Postgres. API code otherwise
+  untouched (no behavior change outside Aspire). Gotchas fixed along the way:
+  AppHost csproj must be `Microsoft.NET.Sdk` + nested `Aspire.AppHost.Sdk`
+  element; JS hosting is `Aspire.Hosting.NodeJs` in 9.x (not `.JavaScript`);
+  `UseServiceDiscovery` is now `AddServiceDiscovery`; `AddPostgres` password
+  takes a Parameter (`AddParameter` with value); port pinning must use
+  `WithEndpoint("http", e => { e.Port = …; })` statement-lambdas (expression
+  lambdas bind the wrong overload); AppHost needs `Properties/
+  launchSettings.json` (dashboard URL `:15038` + OTLP `:4317`/`:4318` + allow
+  unsecured transport). `.vscode/launch.json` gained `Aspire: Full Stack
+  (AppHost)`; README/SETUP document the one-command run. 58/58 tests.
+
 ## Next up
 
-1. P10: run the `verification_guidline.md` pass and fix gaps.
+1. P15 Aspire — RESUME HERE: run `dotnet run --project src/Aspire/ModulePlatform.AppHost`
+   (from `module_as_plugin/`, WITHOUT `--no-launch-profile` — the profile feeds
+   the dashboard its URL/OTLP env). Then verify: dashboard `:15038`, APIs
+   `:5100/:5121/:5122/:5201`, frontends `:5173/:5174/:5175`, Postgres `:5434`
+   (fresh volume `module-platform-pgdata`, auto-migrated + seeded), platform
+   login → create tenant (expect 202 provisioning via wired TenantStores) →
+   tenant login → assignments. F5 sessions were stopped for port conflicts;
+   restart via F5 or use Aspire. NOTE: `module_as_plugin/.gitignore` is
+   untracked — `src/Aspire/` is new/untracked; nothing committed.
+2. P10: run the `verification_guidline.md` pass and fix gaps.
 2. Known deferred items: real Argon2 password verify, per-tenant DB/schema provisioning
    (single tenant store today), Ocelot in-memory hot-swap (file rewrite + reload today),
   `:5121`/`:5432` occupied on this machine by other projects (use alt ports / 5433 override).

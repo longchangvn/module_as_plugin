@@ -5,21 +5,34 @@ database + apply migrations (with platform seed data), then create 1 sample
 tenant with seed data.
 
 Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`,
-shell `:5173`, loyalty remote `:5174`, postgres `:5432`
-(`:5432` is occupied on some machines — use `POSTGRES_PORT=5433` then).
+shell `:5173`, loyalty remote `:5174`, tenant-admin `:5175`, postgres
+`:5432` (`:5433` standalone container / `:5434` Aspire on this machine —
+see below).
 
 ## 0. Prerequisites
 
 ```bash
-dotnet --version   # .NET 8 SDK
-node --version     # Node 18+ for shell / remote
-docker --version   # only for the Postgres path
+dotnet --version   # .NET 8 SDK (APIs) + .NET 9 SDK (Aspire projects)
+node --version     # Node 18+ for shell / remote / tenant-admin
+docker --version   # Postgres (compose, standalone, or Aspire)
 dotnet tool install --global dotnet-ef  # only to author new migrations
 ```
 
 All commands below run from `module_as_plugin/` unless noted.
 
-## 1. Start the app
+## 0b. Fastest start — Aspire (recommended)
+
+```bash
+dotnet run --project src/Aspire/ModulePlatform.AppHost
+```
+
+This starts Aspire Postgres on `:5434` (volume `module-platform-pgdata`),
+all 4 APIs on their fixed ports, the 3 frontends, and the Aspire dashboard.
+Migrations + dev seed (`admin@local`, demo tenant) apply automatically;
+`TenantStores` is pre-wired so tenant provisioning works with no extra env.
+Then continue at §3 (use `TENANT_ID` from the created tenant).
+
+## 1. Start the app (manual)
 
 APIs require physical PostgreSQL (`ConnectionStrings:Catalog/Tenant` fail
 fast when unset — no InMemory fallback).

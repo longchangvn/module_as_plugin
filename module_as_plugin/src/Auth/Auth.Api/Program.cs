@@ -7,8 +7,10 @@ using Auth.Api.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ModulePlatform.ServiceDefaults;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -37,6 +39,7 @@ builder.Services.AddDbContext<TenantDbContext>(o => o.UseNpgsql(tenantConn));
 builder.Services.AddScoped<Auth.Api.Application.SeedApplier>();
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseAuthentication();

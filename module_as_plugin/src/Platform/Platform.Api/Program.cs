@@ -7,6 +7,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ModulePlatform.ServiceDefaults;
 using Platform.Api.Endpoints;
 using Platform.Api.Services;
 using Platform.Application;
@@ -15,6 +16,7 @@ using Platform.Infrastructure;
 using SharedKernel;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -45,6 +47,7 @@ builder.Services.AddScoped<ModuleLifecycleService>();
 builder.Services.AddHttpClient("lifecycle", c => c.Timeout = TimeSpan.FromSeconds(30));
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseAuthentication();

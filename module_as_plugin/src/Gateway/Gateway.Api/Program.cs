@@ -10,10 +10,12 @@ using Gateway.Api.Models;
 using Gateway.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using ModulePlatform.ServiceDefaults;
 using Ocelot.DependencyInjection;
 using Ocelot.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -36,6 +38,7 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("GatewayAdmin", p => p.RequireClaim("platform_role", "Admin"));
 
 var app = builder.Build();
+app.MapDefaultEndpoints();
 app.UseSwagger();
 app.UseSwaggerUI();
 
