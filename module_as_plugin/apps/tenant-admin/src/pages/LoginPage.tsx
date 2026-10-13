@@ -9,20 +9,20 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { tenantLogin } from '../lib/auth';
 import { useSession } from '../app/session';
 
-// Tenant login only: tenant ID + email + password. No platform mode and
-// deliberately no link to the platform portal.
+// Tenant login only: tenant name/slug/id + email + password. No platform mode
+// and deliberately no link to the platform portal.
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { refresh } = useSession();
-  const [tenantId, setTenantId] = useState('');
+  const [tenant, setTenant] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from ?? '/';
-  const valid = tenantId.trim().length > 0 && email.trim().length > 0 && password.length > 0;
+  const valid = tenant.trim().length > 0 && email.trim().length > 0 && password.length > 0;
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -30,7 +30,7 @@ export function LoginPage() {
     setPending(true);
     setError(null);
     try {
-      await tenantLogin(tenantId.trim(), email.trim(), password);
+      await tenantLogin(tenant.trim(), email.trim(), password);
       refresh();
       navigate(from, { replace: true });
     } catch (err) {
@@ -61,12 +61,12 @@ export function LoginPage() {
           <CardContent>
             <form onSubmit={submit} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="tenant-id">Tenant ID *</Label>
+                <Label htmlFor="tenant">Tenant *</Label>
                 <Input
-                  id="tenant-id"
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
-                  placeholder="tnt_…"
+                  id="tenant"
+                  value={tenant}
+                  onChange={(e) => setTenant(e.target.value)}
+                  placeholder="Acme Retail"
                   autoComplete="organization"
                   required
                 />

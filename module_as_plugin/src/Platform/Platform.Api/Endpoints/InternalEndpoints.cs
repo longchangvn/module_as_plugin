@@ -13,6 +13,31 @@ public static class InternalEndpoints
 {
     public static void Map(WebApplication app)
     {
+    // Cluster-internal tenant resolution by human identifier (slug or name,
+    // case-insensitive) for login UX — callers that only know the tenant name
+    // resolve it to the opaque id first, then use the id everywhere else.
+    // Distinct `:resolve` path (never collides with {id} routes).
+    app.MapGet("/internal/tenants:resolve", async (CatalogDbContext db, string? slug, string? name) =>
+    {
+        Tenant? t = null;
+        if (!string.IsNullOrWhiteSpace(slug))
+        {
+            var s = slug.Trim().ToLowerInvariant();
+            t = await db.Tenants.FirstOrDefaultAsync(x => x.Slug.ToLower() == s);
+        }
+        t ??= !string.IsNullOrWhiteSpace(name)
+            ? await db.Tenants.FirstOrDefaultAsync(x => x.Name.ToLower() == name.Trim().ToLower())
+            : null;
+        return t is null
+            ? Results.NotFound()
+            : Results.Json(new { data = new
+            {
+                id = t.Id, status = t.Status.ToString(), dbStatus = t.DbStatus.ToString(),
+                deploymentMode = t.DeploymentMode, dbName = t.DbName, schema = t.Schema,
+                bootstrapAdminEmail = t.BootstrapAdminEmail, bootstrapAdminName = t.BootstrapAdminName,
+            } });
+    });
+
     app.MapGet("/internal/tenants/{id}/status", async (CatalogDbContext db, string id) =>
     {
         var t = await db.Tenants.FindAsync(id);

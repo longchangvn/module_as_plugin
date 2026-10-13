@@ -217,6 +217,8 @@ curl -s localhost:5121/api/v1/platform/tenants \
 # acme row: status Active, dbStatus Ready, schemaVersion set
 ```
 
+Tenant login accepts the opaque id, slug, or tenant name
+(case-insensitive — the login page takes the name, e.g. `Acme Retail`).
 Any password works in v1 (stub verify); production wires Argon2.
 
 ### 3.4 Publish + install the loyalty module (module seed data)

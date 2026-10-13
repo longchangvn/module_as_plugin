@@ -8,6 +8,7 @@ export interface TenantLoginResponse {
   accessToken: string;
   userId: string;
   tenantAdmin: boolean;
+  tenantId: string;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -24,10 +25,12 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return data.data as T;
 }
 
-export async function tenantLogin(tenantId: string, email: string, password: string): Promise<TenantLoginResponse> {
-  const data = await postJson<TenantLoginResponse>('/api/v1/auth/login', { tenantId, email, password });
+export async function tenantLogin(tenant: string, email: string, password: string): Promise<TenantLoginResponse> {
+  const data = await postJson<TenantLoginResponse>('/api/v1/auth/login', { tenantId: tenant, email, password });
   sessionStorage.setItem(TOKEN, data.accessToken);
-  sessionStorage.setItem(TENANT_ID, tenantId);
+  // Backend resolves name/slug/id to the opaque id — store the resolved id
+  // so tenant-scoped calls use the canonical value.
+  sessionStorage.setItem(TENANT_ID, data.tenantId ?? tenant);
   sessionStorage.setItem(USER_ID, data.userId);
   sessionStorage.setItem('tenant_admin', data.tenantAdmin ? 'true' : 'false');
   return data;
