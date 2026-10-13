@@ -103,37 +103,36 @@ cd ../tenant-admin && npx tsc --noEmit          # expect clean
   Postman) updated. Verified live (assign/revoke/activate flows, dup-name 409,
   custom-base 201+400; QA rows cleaned). 58/58 tests + both `tsc` clean.
 
-- [ ] P15 .NET Aspire orchestration (IN PROGRESS, builds clean, not yet run
-  green): `src/Aspire/ModulePlatform.AppHost` (net9.0, Aspire 9.5.2) + fresh
-  `src/Aspire/ModulePlatform.ServiceDefaults` (net8.0+net9.0; resilience,
-  discovery, OTel, `/health`+`/alive`) wired into all 4 APIs via
-  `AddServiceDefaults()`/`MapDefaultEndpoints()`. AppHost: Postgres pinned to
-  host `:5434` (volume `module-platform-pgdata`, fixed dev password),
+- [x] P15 .NET Aspire orchestration (VERIFIED LIVE): `src/Aspire/
+  ModulePlatform.AppHost` (net9.0, Aspire 9.5.2) + `src/Aspire/
+  ModulePlatform.ServiceDefaults` (net8.0+net9.0; resilience, discovery,
+  OTel, `/health`+`/alive`) wired into all 4 APIs via `AddServiceDefaults()`/
+  `MapDefaultEndpoints()`. AppHost: Postgres pinned to host `:5434`... (see
+  gotcha: pinning works via proxy — app ports bind direct, PG via proxy),
   `Catalog`/`Tenant` database resources, 4 APIs + 3 npm apps on fixed ports,
-  full `TenantStores` env wired to Aspire Postgres. API code otherwise
-  untouched (no behavior change outside Aspire). Gotchas fixed along the way:
-  AppHost csproj must be `Microsoft.NET.Sdk` + nested `Aspire.AppHost.Sdk`
-  element; JS hosting is `Aspire.Hosting.NodeJs` in 9.x (not `.JavaScript`);
+  full `TenantStores` env wired to Aspire Postgres. Verified live on a fresh
+  volume: dashboard `:15038`, all APIs/frontends healthy, platform login →
+  tenant create `202`/Provisioning → tenant login (lazy migrate + bootstrap)
+  → user/role/assign `201` → gateway `/api/v1/admin/*` `200`; `aspire1`
+  schema has 7 tables, no `GatewayRules`. API code otherwise untouched.
+  Gotchas fixed: AppHost csproj must be `Microsoft.NET.Sdk` + nested
+  `Aspire.AppHost.Sdk`; JS hosting is `Aspire.Hosting.NodeJs` in 9.x;
   `UseServiceDiscovery` is now `AddServiceDiscovery`; `AddPostgres` password
-  takes a Parameter (`AddParameter` with value); port pinning must use
-  `WithEndpoint("http", e => { e.Port = …; })` statement-lambdas (expression
-  lambdas bind the wrong overload); AppHost needs `Properties/
-  launchSettings.json` (dashboard URL `:15038` + OTLP `:4317`/`:4318` + allow
-  unsecured transport). `.vscode/launch.json` gained `Aspire: Full Stack
-  (AppHost)`; README/SETUP document the one-command run. 58/58 tests.
+  takes a Parameter; port pinning needs `WithEndpoint("http", e => {
+  e.Port = …; e.IsProxied = false; })` statement-lambdas (expression lambdas
+  bind the wrong overload; default `IsProxied=true` makes DCP proxy the port
+  and the app crash on bind); AppHost needs `Properties/launchSettings.json`
+  (dashboard `:15038` + OTLP `:4317`/`:4318`). P15b migration-ordering bug
+  found by the fresh Aspire DB: shared-DB/shared-history `GatewayRules`
+  collided (`42P07`) depending on migrate order → renamed catalog table to
+  `PlatformGatewayRules`, removed it from tenant `InitialTenant`, made the
+  drop `IF EXISTS`; convergence matrix-tested both orders on fresh DBs +
+  existing DB. `.vscode/launch.json` gained `Aspire: Full Stack (AppHost)`;
+  README/SETUP document the one-command run. 58/58 tests.
 
 ## Next up
 
-1. P15 Aspire — RESUME HERE: run `dotnet run --project src/Aspire/ModulePlatform.AppHost`
-   (from `module_as_plugin/`, WITHOUT `--no-launch-profile` — the profile feeds
-   the dashboard its URL/OTLP env). Then verify: dashboard `:15038`, APIs
-   `:5100/:5121/:5122/:5201`, frontends `:5173/:5174/:5175`, Postgres `:5434`
-   (fresh volume `module-platform-pgdata`, auto-migrated + seeded), platform
-   login → create tenant (expect 202 provisioning via wired TenantStores) →
-   tenant login → assignments. F5 sessions were stopped for port conflicts;
-   restart via F5 or use Aspire. NOTE: `module_as_plugin/.gitignore` is
-   untracked — `src/Aspire/` is new/untracked; nothing committed.
-2. P10: run the `verification_guidline.md` pass and fix gaps.
+1. P10: run the `verification_guidline.md` pass and fix gaps.
 2. Known deferred items: real Argon2 password verify, per-tenant DB/schema provisioning
    (single tenant store today), Ocelot in-memory hot-swap (file rewrite + reload today),
   `:5121`/`:5432` occupied on this machine by other projects (use alt ports / 5433 override).

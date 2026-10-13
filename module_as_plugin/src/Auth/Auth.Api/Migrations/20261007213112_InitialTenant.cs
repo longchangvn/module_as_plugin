@@ -11,24 +11,10 @@ namespace Auth.Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateTable(
-                name: "GatewayRules",
-                columns: table => new
-                {
-                    Id = table.Column<string>(type: "text", nullable: false),
-                    ModuleId = table.Column<string>(type: "text", nullable: false),
-                    UpstreamTemplate = table.Column<string>(type: "text", nullable: false),
-                    DownstreamTemplate = table.Column<string>(type: "text", nullable: false),
-                    Methods = table.Column<string>(type: "text", nullable: false),
-                    Permission = table.Column<string>(type: "text", nullable: true),
-                    Enabled = table.Column<bool>(type: "boolean", nullable: false),
-                    AppliedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_GatewayRules", x => x.Id);
-                });
-
+            // NOTE (P15): GatewayRules is no longer a tenant table — it lives
+            // in the platform catalog (MoveGatewayRulesToPlatform). The
+            // CreateTable was removed so fresh databases converge regardless
+            // of migration order; applied databases never re-run this.
             migrationBuilder.CreateTable(
                 name: "Menus",
                 columns: table => new
@@ -159,9 +145,8 @@ namespace Auth.Api.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "GatewayRules");
-
+            // NOTE (P15): no GatewayRules drop — that table belongs to the
+            // platform catalog and must survive a tenant rollback.
             migrationBuilder.DropTable(
                 name: "Menus");
 

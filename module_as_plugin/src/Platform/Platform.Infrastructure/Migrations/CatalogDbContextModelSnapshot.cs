@@ -54,7 +54,7 @@ namespace Platform.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("GatewayRules");
+                    b.ToTable("PlatformGatewayRules", (string)null);
                 });
 
             modelBuilder.Entity("Platform.Domain.ModuleVersion", b =>

@@ -39,6 +39,6 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
         });
         b.Entity<TenantModuleInstall>(e => e.HasKey(x => new { x.TenantId, x.ModuleId }));
         b.Entity<TenantAudit>(e => e.HasKey(x => x.Id));
-        b.Entity<GatewayRule>(e => e.HasKey(x => x.Id));
+        b.Entity<GatewayRule>(e => { e.HasKey(x => x.Id); e.ToTable("PlatformGatewayRules"); });
     }
 }

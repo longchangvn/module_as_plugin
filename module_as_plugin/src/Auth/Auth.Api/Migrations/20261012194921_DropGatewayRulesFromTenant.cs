@@ -11,8 +11,11 @@ namespace Auth.Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "GatewayRules");
+            // IF EXISTS: on fresh databases the tenant table may never have
+            // existed (InitialTenant no longer creates it); on legacy
+            // databases this removes the pre-move leftover. Unqualified so
+            // schema-stamped (shared) stores resolve via search_path.
+            migrationBuilder.Sql(@"DROP TABLE IF EXISTS ""GatewayRules"";");
         }
 
         /// <inheritdoc />

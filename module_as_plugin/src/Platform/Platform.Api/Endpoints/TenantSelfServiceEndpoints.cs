@@ -37,8 +37,6 @@ public static class TenantSelfServiceEndpoints
             LifecycleEndpoints.RunLifecycle(installLocks, ctx, db, svc, ctx.User.FindFirst("tenantId")?.Value ?? "", id, req.Version, "install"))
         .RequireAuthorization();
 
-    static string TenantId(HttpContext ctx) => ctx.User.FindFirst("tenantId")?.Value ?? "";
-
     app.MapGet("/api/v1/tenant/modules/{id}", async (CatalogDbContext db, HttpContext ctx, IModuleLifecyclePorts ports, string id) =>
     {
         var tid = ApiHelpers.TenantId(ctx);
