@@ -259,10 +259,13 @@ cd ../tenant-admin && npx tsc --noEmit          # expect clean
 
 1. P10: continue the `verification_guidline.md` pass (black/gray/white-box) over
    the remaining §5–§14 requirements; the gap items above are verified.
-2. **Open risk R-GW1 (accepted, fix later)**: gateway module enabled/disabled
-   state and routes are global, not per tenant — disable/uninstall for one
-   tenant affects all; install/enable for one re-enables for all. Details +
-   planned fix: `docs/gap-closure-report.md` → "Known risks".
+2. **PENDING APPROVAL — gateway per-tenant gating** (fixes open risks
+   **R-GW1** global module state and **R-GW2** unauthenticated
+   `/api/v1/gateway/internal/module-routes`, CRITICAL). Proposal + 3 decisions
+   (D1 push+reconcile, D2 version skew, D3 JWT at gateway):
+   `docs/proposal-gateway-per-tenant-state.md`. Resume: get D1–D3 answered →
+   implement G1–G5, P1–P3 → two-tenant matrix. Risk register:
+   `docs/gap-closure-report.md` → "Known risks".
 3. Gap Phase 2 (required): revocable sessions (`admin_sessions`, A-BR1/A-BR4),
    tenant menus CRUD + tenant-admin page, asymmetric JWT signing (RS256;
    Platform/Auth sign, others verify). Phase 3: OIDC RP login (needs IdP

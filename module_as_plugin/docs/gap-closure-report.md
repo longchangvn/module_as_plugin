@@ -183,9 +183,22 @@ wrong enabled state, not authorization); the catalog DB remains the source
 of truth per tenant; test with one tenant per module, or avoid
 disable/uninstall while other tenants use the module.
 
-**Planned fix**: per-tenant gating in the gateway — keep routes per module
-while installed in ≥1 tenant, and check `(tenantId from JWT/header,
-moduleId)` against a per-tenant enabled set (pushed by Platform or read
-from Platform's internal API with a short cache) before proxying; remove
-routes only when the last tenant uninstalls. Add a two-tenant isolation
-test (disable in A, B keeps working).
+**Planned fix**: per-tenant gating in the gateway (push + reconcile).
+Full design, file list, test matrix and the **3 decisions pending
+approval**: `docs/proposal-gateway-per-tenant-state.md` (status: PROPOSED).
+
+### R-GW2 — Unauthenticated gateway internal route API (CRITICAL)
+
+**What**: `POST /api/v1/gateway/internal/module-routes`
+(`Gateway.Api/Endpoints/AdminEndpoints.cs`) has no authentication and is
+reachable on the public gateway port (:5100).
+
+**Impact**: anyone can disable/remove any module's routes, or re-point a
+module's downstream to an arbitrary host via `baseUrl`, capturing traffic
+including bearer tokens.
+
+**Mitigation until fixed**: do not expose the gateway beyond local dev.
+
+**Planned fix**: replace it with `X-Internal-Key`-protected per-tenant
+endpoints — item G3 of `docs/proposal-gateway-per-tenant-state.md`
+(can ship first, independently of R-GW1).
