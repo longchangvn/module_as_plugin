@@ -45,47 +45,108 @@ export interface CatalogItem {
   description: string;
   owner: string;
   installState: string;
+  installedVersion?: string | null;
+  versions?: string[];
+  error?: string | null;
 }
 
 export function fetchCatalog(): Promise<CatalogItem[]> {
   return api<CatalogItem[]>('/api/v1/tenant/modules');
 }
 
-interface RegistryItem {
+export interface RegistryModule {
   id: string;
   displayName: string;
   description: string;
   owner: string;
-  latestVersion?: string;
+  icon: string | null;
+  category: string | null;
+  status: 'Available' | 'Deprecated';
+  latestVersion: string | null;
+  versions: string[]; // newest first
+  dependencies: { name: string; versionRange: string }[];
+  installedTenantCount: number;
 }
 
-interface InstallState {
+export type ModuleInstallState = 'INSTALLING' | 'INSTALLED' | 'DISABLED' | 'FAILED' | 'UNINSTALLING';
+
+export interface ModuleInstall {
+  tenantId: string;
+  tenantName: string;
+  state: ModuleInstallState;
+  version: string;
+  enabled: boolean;
+}
+
+export interface TenantInstall {
+  tenantId: string;
   moduleId: string;
+  version: string;
   state: string | number; // backend serializes InstallState enum as a number
+  enabled: boolean;
+  installedAt: string;
+  updatedAt: string;
+  error: string | null;
 }
 
 // InstallState enum order (Platform.Domain):
 // NotInstalled, Installing, Installed, Disabled, Failed, Uninstalling.
 const INSTALL_STATE_LABELS = ['NOT_INSTALLED', 'INSTALLING', 'INSTALLED', 'DISABLED', 'FAILED', 'UNINSTALLING'];
 
-function installStateLabel(state: string | number): string {
+export function installStateLabel(state: string | number): string {
   if (typeof state === 'number') return INSTALL_STATE_LABELS[state] ?? String(state);
   return String(state).toUpperCase();
 }
 
-// Platform-session catalog: registry joined with one tenant's install states.
+export function fetchRegistry(): Promise<RegistryModule[]> {
+  return api<RegistryModule[]>('/api/v1/platform/modules');
+}
+
+export function fetchModuleInstalls(id: string): Promise<ModuleInstall[]> {
+  return api<ModuleInstall[]>(`/api/v1/platform/modules/${id}/installs`);
+}
+
+export function fetchTenantInstalls(tenantId: string): Promise<TenantInstall[]> {
+  return api<TenantInstall[]>(`/api/v1/platform/tenants/${tenantId}/modules`);
+}
+
+export interface RegisterModuleBody {
+  manifestYaml: string;
+  artifactApiUrl: string;
+  artifactRemoteUrl?: string;
+}
+
+export function registerModule(body: RegisterModuleBody): Promise<{ id: string; version: string }> {
+  return api<{ id: string; version: string }>('/api/v1/platform/modules', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function installToTenant(tenantId: string, moduleId: string, version?: string): Promise<unknown> {
+  return api(`/api/v1/platform/tenants/${tenantId}/modules/${moduleId}/install`, {
+    method: 'POST',
+    body: JSON.stringify(version ? { version } : {}),
+  });
+}
+
+// Platform-session tenant view: the tenant's install rows (not-installed excluded)
+// joined with the registry for display fields and upgrade versions.
 export async function fetchPlatformCatalog(tenantId: string): Promise<CatalogItem[]> {
-  const [modules, installs] = await Promise.all([
-    api<RegistryItem[]>('/api/v1/platform/modules'),
-    api<InstallState[]>(`/api/v1/platform/tenants/${tenantId}/modules`),
-  ]);
-  return modules.map((m) => ({
-    id: m.id,
-    displayName: m.displayName,
-    description: m.description,
-    owner: m.owner,
-    installState: installStateLabel(installs.find((i) => i.moduleId === m.id)?.state ?? 'NOT_INSTALLED'),
-  }));
+  const [modules, installs] = await Promise.all([fetchRegistry(), fetchTenantInstalls(tenantId)]);
+  return installs
+    .map((i) => ({ install: i, state: installStateLabel(i.state) }))
+    .filter(({ state }) => state !== 'NOT_INSTALLED')
+    .map(({ install, state }) => {
+      const m = modules.find((r) => r.id === install.moduleId);
+      return {
+        id: install.moduleId,
+        displayName: m?.displayName ?? install.moduleId,
+        description: m?.description ?? '',
+        owner: m?.owner ?? '',
+        installState: state,
+        installedVersion: install.version,
+        versions: m?.versions ?? [],
+        error: install.error,
+      };
+    });
 }
 
 export function installModule(id: string): Promise<unknown> {

@@ -1,3 +1,4 @@
+using Auth.Api.Application;
 using Auth.Api.Domain;
 using Auth.Api.Infrastructure;
 using Auth.Api.Models;
@@ -32,15 +33,19 @@ public static class RoleEndpoints
     }).RequireAuthorization();
 
     // Roles: update description / activate/deactivate (name immutable).
-    app.MapPatch("/api/v1/admin/roles/{id}", async (TenantDbContext legacy, TenantDbProvider provider, HttpContext ctx, string id, PatchRoleRequest req) =>
+    app.MapPatch("/api/v1/admin/roles/{id}", async (TenantDbContext legacy, TenantDbProvider provider, HttpContext ctx, PermissionVersionCache versions, string id, PatchRoleRequest req) =>
     {
         await using var db = await provider.ForRequestAsync(ctx, legacy);
         var role = await db.Roles.FindAsync(id);
         if (role is null) return ApiErrors.Problem(ErrorCodes.UnknownRole, $"Unknown role '{id}'.", 404);
+        if (req.IsActive == false && role.IsActive &&
+            await LastAdminGuard.WouldLockOutAsync(db, g => g.RoleId == id))
+            return UserEndpoints.LastAdminProblem();
         if (req.Description is not null) role.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
         if (req.IsActive.HasValue) role.IsActive = req.IsActive.Value;
         role.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
+        if (req.IsActive.HasValue) ApiHelpers.BumpPermissions(ctx, versions); // effective sets may change
         return Results.Json(new { data = role });
     }).RequireAuthorization();
 
@@ -54,7 +59,7 @@ public static class RoleEndpoints
             .Join(db.Permissions, rp => rp.PermissionId, p => p.Id, (rp, p) => p).AsNoTracking().ToListAsync();
         return Results.Json(new { data = perms });
     }).RequireAuthorization();
-    app.MapPost("/api/v1/admin/roles/{id}/permissions", async (TenantDbContext legacy, TenantDbProvider provider, HttpContext ctx, string id, AssignPermissionRequest req) =>
+    app.MapPost("/api/v1/admin/roles/{id}/permissions", async (TenantDbContext legacy, TenantDbProvider provider, HttpContext ctx, PermissionVersionCache versions, string id, AssignPermissionRequest req) =>
     {
         await using var db = await provider.ForRequestAsync(ctx, legacy);
         if (!await db.Roles.AnyAsync(r => r.Id == id))
@@ -65,15 +70,17 @@ public static class RoleEndpoints
             return ApiErrors.Problem(ErrorCodes.ValidationError, "Permission already granted to role.", 409);
         db.RolePermissions.Add(new RolePermission { RoleId = id, PermissionId = req.PermissionId });
         await db.SaveChangesAsync();
+        ApiHelpers.BumpPermissions(ctx, versions);
         return Results.Json(new { data = new { roleId = id, permissionId = req.PermissionId } }, statusCode: 201);
     }).RequireAuthorization();
-    app.MapDelete("/api/v1/admin/roles/{id}/permissions/{permissionId}", async (TenantDbContext legacy, TenantDbProvider provider, HttpContext ctx, string id, string permissionId) =>
+    app.MapDelete("/api/v1/admin/roles/{id}/permissions/{permissionId}", async (TenantDbContext legacy, TenantDbProvider provider, HttpContext ctx, PermissionVersionCache versions, string id, string permissionId) =>
     {
         await using var db = await provider.ForRequestAsync(ctx, legacy);
         var link = await db.RolePermissions.FindAsync(id, permissionId);
         if (link is null) return ApiErrors.Problem(ErrorCodes.ValidationError, "Permission is not granted to role.", 404);
         db.RolePermissions.Remove(link);
         await db.SaveChangesAsync();
+        ApiHelpers.BumpPermissions(ctx, versions);
         return Results.Json(new { data = new { roleId = id, permissionId, revoked = true } });
     }).RequireAuthorization();
 

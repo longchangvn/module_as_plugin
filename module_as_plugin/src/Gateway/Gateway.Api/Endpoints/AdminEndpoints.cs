@@ -81,8 +81,9 @@ public static class AdminEndpoints
         {
             if (!GatewayHelpers.IsWriter(ctx, configuration, GatewayHelpers.UseDevKey(ctx, configuration, isDevelopment)))
                 return Results.Json(new { error = new { code = "FORBIDDEN", message = "Admin only." } }, statusCode: 403);
-            await store.ReloadAsync();
-            return Results.Json(new { data = new { reloaded = true } });
+            var (ok, err) = await store.ReloadAsync();
+            return ok ? Results.Json(new { data = new { reloaded = true } })
+                : Results.Json(new { error = new { code = "CONFIG_INVALID", message = err, retryable = false } }, statusCode: 400);
         });
         app.MapGet("/api/v1/gateway/traffic", (TrafficRecorder traffic, int windowMinutes = 60) =>
             Results.Json(new { data = traffic.Snapshot(windowMinutes) }));
@@ -97,7 +98,7 @@ public static class AdminEndpoints
         // Internal: platform lifecycle writes module routes (source=module-install, audited).
         app.MapPost("/api/v1/gateway/internal/module-routes", async (GatewayStore store, ModuleRoutesRequest req) =>
         {
-            var result = await store.ApplyModuleRoutesAsync(req.ModuleId, req.Upstreams, req.Enabled, req.Remove);
+            var result = await store.ApplyModuleRoutesAsync(req.ModuleId, req.Upstreams, req.Enabled, req.Remove, req.BaseUrl);
             return result.Ok ? Results.Json(new { data = new { applied = result.Value } })
                 : Results.Json(new { error = new { code = "GATEWAY_APPLY_FAILED", message = result.Error } }, statusCode: 502);
         });

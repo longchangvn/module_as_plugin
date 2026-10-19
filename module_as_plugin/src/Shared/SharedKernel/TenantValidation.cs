@@ -139,4 +139,57 @@ public static class TenantValidator
 
     public static string DefaultPathPrefix(string slug, string? pathBase = null) =>
         $"{NormalizePathBase(pathBase)}/{slug.Trim().ToLowerInvariant()}";
+
+    // Schema derived from a tenant slug for custom-connection dedicated
+    // tenants (tables live under this schema in the tenant's own database).
+    public static string SanitizeSchemaSlug(string slug)
+    {
+        var s = (slug ?? "").Trim().ToLowerInvariant().Replace("-", "_");
+        if (s.Length > 0 && char.IsDigit(s[0])) s = "_" + s;
+        return s;
+    }
+
+    // Lenient validation for a user-supplied Npgsql connection string.
+    // Returns the error message, or null when the shape is acceptable.
+    // (Strict parsing happens when Npgsql actually dials at provisioning.)
+    public static string? ValidateDbConnectionString(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "Connection string must not be empty.";
+        var parts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var seg in SplitConnectionString(value))
+        {
+            if (string.IsNullOrWhiteSpace(seg)) continue;
+            var eq = seg.IndexOf('=');
+            if (eq <= 0) return "Connection string must be key=value pairs separated by ';'.";
+            var key = seg[..eq].Trim();
+            var val = seg[(eq + 1)..].Trim().Trim('\'', '"');
+            if (key.Length == 0) return "Connection string must be key=value pairs separated by ';'.";
+            parts[key] = val;
+        }
+        if (!parts.TryGetValue("Host", out var host) || string.IsNullOrWhiteSpace(host))
+            return "Connection string must include Host.";
+        if (!parts.TryGetValue("Database", out var database) || string.IsNullOrWhiteSpace(database))
+            return "Connection string must include Database.";
+        return null;
+    }
+
+    // Splits on ';' outside single/double quotes (passwords may contain ';').
+    private static IEnumerable<string> SplitConnectionString(string value)
+    {
+        var current = new System.Text.StringBuilder();
+        char? quote = null;
+        foreach (var c in value)
+        {
+            if (quote is null && (c == '\'' || c == '"')) quote = c;
+            else if (quote == c) quote = null;
+            if (c == ';' && quote is null)
+            {
+                yield return current.ToString();
+                current.Clear();
+                continue;
+            }
+            current.Append(c);
+        }
+        yield return current.ToString();
+    }
 }

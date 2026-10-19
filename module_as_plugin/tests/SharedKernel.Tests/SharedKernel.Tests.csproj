@@ -4,6 +4,8 @@
     <ProjectReference Include="..\..\src\Shared\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Platform\Platform.Application\Platform.Application.csproj" />
     <ProjectReference Include="..\..\src\Auth\Auth.Api\Auth.Api.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sample1\Sample1.Api\Sample1.Api.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sample2\Sample2.Api\Sample2.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>

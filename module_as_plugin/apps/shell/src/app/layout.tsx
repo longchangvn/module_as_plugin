@@ -10,6 +10,7 @@ import {
   Puzzle,
   Route as RouteIcon,
   Server,
+  UserRound,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const CORE_NAV: NavItem[] = [
   { to: "/modules", label: "Catalog", icon: LayoutGrid },
   { to: "/tenants", label: "Tenants", icon: Building2 },
   { to: "/gateway", label: "Gateway", icon: Globe, end: true },
+  { to: "/profile", label: "Profile", icon: UserRound },
 ];
 
 const GATEWAY_NAV: NavItem[] = [

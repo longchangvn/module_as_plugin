@@ -1,0 +1,16 @@
+**/node_modules/
+**/dist/
+**/bin/
+**/obj/
+**/*.log
+**/.env
+**/.env.*
+!.env.example
+**/.DS_Store
+.git/
+.vs/
+.idea/
+.vscode/
+coverage/
+# Data Protection keys / secrets never go into images
+src/Platform/Platform.Api/keys/

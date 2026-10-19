@@ -98,6 +98,15 @@ cd apps/tenant-admin && npm install && npm run dev # :5175 tenant backoffice (pr
   with reserved words blocked, optional domain (lowercase hostname) / pathPrefix
   (`{base}/{slug}`, base from `TenantRouting:PathPrefix`, default `/t`),
   resolutionMode `domain|path|header`, valid contact email.
+- Dedicated tenants accept an optional `dbConnectionString` (collapsed input in
+  the create dialog; `Host` + `Database` required, `shared` mode rejected).
+  Its `Database` is honored and tables live under a slug-derived schema;
+  uniqueness is the (server, database, schema) tuple. Stored
+  Data-Protection-encrypted (`DbConnectionEncrypted`, never returned —
+  responses carry only `hasCustomConnection`), immutable after creation
+  (`422`), handed to Auth at runtime via cluster-internal
+  `GET /internal/tenants/{id}/connection` (`X-Internal-Key`
+  `InternalApi:Key`). Absent → platform default server.
   Duplicates → `409 DUPLICATE_TENANT` with `{field}`; shape errors → `400`
   with field list; immutable `slug/dbName/schema` on PATCH → `422 IMMUTABLE_FIELD`.
 - `PATCH /api/v1/platform/tenants/{tid}`, `POST .../disable {reason}` and
@@ -115,7 +124,29 @@ cd apps/tenant-admin && npm install && npm run dev # :5175 tenant backoffice (pr
 
 - Platform portal (`apps/shell`, `:5173/login`): platform operators only
   (`POST /api/v1/platform/auth/login`). The page links out to Tenant Admin —
-  tenant login is not embedded here.
+  tenant login is not embedded here. Logged-in operators get a **Profile**
+  page (`/profile`): editable name, readonly email, role/status/IDs/timestamps,
+  plus a **Change password** action (`GET|PATCH /api/v1/platform/auth/me`,
+  `POST /api/v1/platform/auth/change-password`).
+- Tenant Admin portal (`apps/tenant-admin`, `:5175/login`): tenant ID + email +
+  password (`POST /api/v1/auth/login`), no platform mode and no link back.
+  Successful login lands on the tenant Home (counts + effective permissions).
+  Logged-in users get a **Profile** page (`/profile`): editable name, readonly
+  email, tenant/roles/effective-permissions/status/timestamps, plus a
+  **Change password** action (`GET|PATCH /api/v1/auth/me`,
+  `POST /api/v1/auth/change-password`). Neither profile response includes a
+  password hash; new passwords must be 8–200 chars and are stored as Argon2id.
+- Credential throttling: the gateway limits `POST` login and change-password
+  (`/api/v1/platform/auth/*`, `/api/v1/auth/*`) to 10/min per client IP
+  (`RateLimiting:CredentialPermitPerMinute`); over the limit →
+  `429 RATE_LIMITED` + `Retry-After: 60`. Direct service ports are not
+  throttled — expose only the gateway outside local dev (G-BR3).
+- Last-admin guard (edge case 12): deactivating a user, removing a user-role
+  link, deactivating a role, or uninstalling a module whose seeded system role
+  is the tenant's last admin grant → `409 LAST_ADMIN`, nothing changed. "Admin
+  grant" = active user with an active role whose name contains `Admin` (same
+  rule as the `tenant_admin` login claim). Uninstall revokes the seed before
+  touching gateway routes, so a refusal leaves the module fully installed.
 - Tenant Admin portal (`apps/tenant-admin`, `:5175/login`): tenant ID + email +
   password (`POST /api/v1/auth/login`), no platform mode and no link back.
   Successful login lands on the tenant Home (counts + effective permissions).
@@ -131,6 +162,51 @@ cd apps/tenant-admin && npm install && npm run dev # :5175 tenant backoffice (pr
   `PATCH /api/v1/admin/roles/{id}` (`description`, `isActive`).
   Unknown user/role/permission → `404 UNKNOWN_USER/UNKNOWN_ROLE/UNKNOWN_PERMISSION`;
   duplicate grant → `409`; revoked link → `404`.
+
+## Sample test modules (`sample1`, `sample2`)
+
+Two template-built modules for exercising the install lifecycle end to end
+(spec: `../specs/001-sample-test-modules/`).
+
+| | Sample Module 1 | Sample Module 2 |
+|---|---|---|
+| API | `src/Modules/Sample1/Sample1.Api` :5202 | `src/Modules/Sample2/Sample2.Api` :5203 |
+| Remote | `modules/sample1/web` :5176 (`npm run serve`) | `modules/sample2/web` :5177 |
+| Gateway | `/api/v1/sample1/{data,protected}` | `/api/v1/sample2/{data,protected}` |
+| Permission / role | `SAMPLE_ONE_DATA_PROTECTED` / Sample 1 Viewer | `SAMPLE_TWO_DATA_PROTECTED` / Sample 2 Viewer |
+
+- Each page has **Get sample data** (any tenant user) and **Get protected
+  data** (enabled only when `/api/v1/auth/me` lists the module's protected
+  permission; the API re-checks every call via Auth resolve, `403 FORBIDDEN`
+  / fail-closed `503 AUTHZ_UNAVAILABLE`, no module-side cache).
+- **Tenant Admin (:5175) is the Module Federation host**: Home lists installed
+  modules, the top nav gets one link per module menu, and module routes
+  lazy-load the remote from `GET /api/v1/tenant/frontend-bootstrap`. The
+  platform shell stays operator-only.
+- Shared guard helper: `SharedKernel/ModuleGuards.cs` (tenant claim + header
+  match + usability, permission resolve).
+- Known limits: gateway module enable/disable state is global, not per
+  tenant (open risk **R-GW1**, `docs/gap-closure-report.md`); remotes must be
+  built (`vite preview`), not `vite dev`.
+
+## Module Catalog (platform shell, `/modules`)
+
+- **All modules** (default picker value): every registered module with
+  latest version, dependencies, Available/Deprecated badge and "Installed in
+  N tenants". **Install to tenants…** opens a multi-select dialog (active
+  tenants only; tenants that already have it are shown with their state),
+  version defaults to latest; the UI calls the per-tenant install API once per
+  tenant and shows a result per tenant. Deprecated modules can't be installed.
+- **Register module** (Admin): upload/paste `manifest.yml` + module API URL
+  (+ optional remote URL) → `POST /api/v1/platform/modules`; validation
+  errors are listed inline.
+- **Tenant selected**: only that tenant's Installed / Disabled / Failed
+  modules, with Enable / Disable / Upgrade / Uninstall and Retry install.
+- Maintainer sees everything read-only (R1).
+- APIs: `GET /api/v1/platform/modules` (versions newest-first by semver,
+  dependencies of the latest version, `installedTenantCount`),
+  `GET /api/v1/platform/modules/{id}/installs` (per-tenant state for one module).
+- ⚠ Multi-tenant installs make risk **R-GW1** easier to hit.
 
 ## Tenant routing prefix
 
@@ -158,7 +234,17 @@ cd apps/tenant-admin && npm install && npm run dev # :5175 tenant backoffice (pr
   Retry: `POST /platform/tenants/{tid}/provision:retry`.
 - Bootstrap admin: pass `bootstrapAdminEmail` (+ optional `bootstrapAdminName`)
   at creation; it is seeded as the first tenant user on first store use, so the
-  first tenant login with that email succeeds (any password in v1).
+  first tenant login with that email succeeds (Development: any password on
+  first use, claimed and stored as Argon2id; Production requires the real
+  password — no stub fallback).
 - Config (`TenantStores`): `Host/Port/Username/Password/SharedDatabase` for
   building tenant connections server-side (never in catalog traffic, NFR4);
-  `ProvisioningConnection` for DDL. See `.env.example` and `docker-compose.yml`.
+  `ProvisioningConnection` for DDL. `InternalApi:Key` guards the
+  custom-connection hand-off endpoint.
+- Required secrets: `Jwt:SecretKey` (all 4 APIs) and `InternalApi:Key`
+  (Platform + Auth). Development falls back to built-in dev values; any other
+  environment refuses to start when a secret is missing, shorter than 32
+  chars, or the dev default (`docker compose` needs `JWT_SECRET` and
+  `INTERNAL_API_KEY` in `.env`). Data Protection keys persist under
+  `DataProtection:KeyDirectory` (default `./keys`) — back this directory up
+  with the database or stored secrets become undecryptable. See `.env.example` and `docker-compose.yml`.

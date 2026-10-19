@@ -59,3 +59,18 @@ above, so the export can be omitted for default local passwords/ports
 
 Runtime APIs keep using `module_platform` and call `MigrateAsync()` on
 startup when a connection string is set — no change needed there.
+
+## Tenant connection secrets + Data Protection keys
+
+Per-tenant custom connection strings (`tenants.DbConnectionEncrypted`) are
+ciphertext (ASP.NET Core Data Protection, purpose `TenantDbConnection:v1`).
+The DB alone cannot decrypt them — the key ring can:
+
+- Local/dev: `DataProtection:KeyDirectory` (default `./keys` under the
+  Platform content root).
+- Compose/Aspire: mount a persistent volume at that directory.
+
+Back up the key directory with the database. If keys are lost, affected
+tenants report `provision-failed` ("stored connection cannot be decrypted")
+and must have their connection re-entered (recreate the tenant — the value is
+immutable). Never commit keys; rotate `InternalApi:Key` per environment.

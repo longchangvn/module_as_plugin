@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Models;
+using Platform.Api.Services;
 using Platform.Application;
 using Platform.Domain;
 using Platform.Infrastructure;
@@ -20,7 +21,7 @@ public static class TenantEndpoints
         return Results.Json(new { data = tenants });
     }).RequireAuthorization("PlatformAny");
 
-    app.MapPost("/api/v1/platform/tenants", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg, CreateTenantRequest req) =>
+    app.MapPost("/api/v1/platform/tenants", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg, TenantConnectionProtector protector, CreateTenantRequest req) =>
     {
         if (ApiHelpers.RequireRole(ctx) != "Admin") return ApiErrors.Problem(ErrorCodes.Forbidden, "Maintainer is read-only for tenants.", 403);
         var pathBase = TenantValidator.NormalizePathBase(cfg["TenantRouting:PathPrefix"]);
@@ -32,10 +33,48 @@ public static class TenantEndpoints
         var name = req.Name.Trim();
         var slug = req.Slug.Trim().ToLowerInvariant();
         var mode = (req.DeploymentMode ?? "dedicated").Trim().ToLowerInvariant();
-        var dbName = string.IsNullOrWhiteSpace(req.DbName) ? $"tenant_{slug.Replace("-", "_")}" : req.DbName.Trim();
-        var schema = mode == "shared" ? req.Schema!.Trim() : "public";
-        var dup = await ApiHelpers.DuplicateTenantFieldAsync(db, null, name, slug, req.Domain, req.PathPrefix, mode, dbName, schema, pathBase);
+        // Optional custom database connection (dedicated only). The Database
+        // inside is honored; tables live under the slug-derived schema.
+        var customConn = string.IsNullOrWhiteSpace(req.DbConnectionString) ? null : req.DbConnectionString.Trim();
+        string? customHost = null;
+        int? customPort = null;
+        var hasCustom = false;
+        if (customConn is not null)
+        {
+            if (mode != "dedicated")
+                return ApiErrors.Problem(ErrorCodes.ValidationError, "Custom connection is only supported for dedicated tenants.", 400, new { field = "dbConnectionString" });
+            var connError = TenantValidator.ValidateDbConnectionString(customConn);
+            if (connError is not null)
+                return ApiErrors.Problem(ErrorCodes.ValidationError, connError, 400, new { field = "dbConnectionString" });
+            Npgsql.NpgsqlConnectionStringBuilder csb;
+            try
+            {
+                csb = new Npgsql.NpgsqlConnectionStringBuilder(customConn);
+                if (string.IsNullOrWhiteSpace(csb.Host) || string.IsNullOrWhiteSpace(csb.Database))
+                    return ApiErrors.Problem(ErrorCodes.ValidationError, "Connection string must include Host and Database.", 400, new { field = "dbConnectionString" });
+            }
+            catch (Exception)
+            {
+                return ApiErrors.Problem(ErrorCodes.ValidationError, "Connection string could not be parsed.", 400, new { field = "dbConnectionString" });
+            }
+            customHost = csb.Host;
+            customPort = csb.Port;
+            hasCustom = true;
+        }
+        var dbName = hasCustom
+            ? new Npgsql.NpgsqlConnectionStringBuilder(customConn!).Database
+            : (string.IsNullOrWhiteSpace(req.DbName) ? $"tenant_{slug.Replace("-", "_")}" : req.DbName.Trim());
+        var schema = mode == "shared" ? req.Schema!.Trim()
+            : hasCustom ? TenantValidator.SanitizeSchemaSlug(slug) : "public";
+        if (hasCustom && (schema is "public" or "information_schema" || schema.StartsWith("pg_")))
+            return ApiErrors.Problem(ErrorCodes.ValidationError, "Derived schema name is reserved for this slug.", 400, new { field = "slug" });
+        var dup = await ApiHelpers.DuplicateTenantFieldAsync(db, null, name, slug, req.Domain, req.PathPrefix, mode, dbName, schema, pathBase, hasCustom);
         if (dup is not null) return dup;
+        if (hasCustom)
+        {
+            var customDup = await ApiHelpers.CheckCustomConnectionAsync(db, cfg, null, dbName, schema, customHost!, customPort!.Value);
+            if (customDup is not null) return customDup;
+        }
         var tenant = new Tenant
         {
             Id = Cuid.New("tnt"), Name = name, Slug = slug,
@@ -43,6 +82,7 @@ public static class TenantEndpoints
             PathPrefix = string.IsNullOrWhiteSpace(req.PathPrefix) ? TenantValidator.DefaultPathPrefix(slug, pathBase) : req.PathPrefix.Trim(),
             ResolutionMode = req.ResolutionMode ?? "path",
             DeploymentMode = mode, DbName = dbName, Schema = schema,
+            DbConnectionEncrypted = hasCustom ? protector.Protect(customConn!) : null,
             Status = TenantStatus.Provisioning, DbStatus = TenantDbStatus.Provisioning,
             BootstrapAdminEmail = string.IsNullOrWhiteSpace(req.BootstrapAdminEmail) ? null : req.BootstrapAdminEmail.Trim(),
             BootstrapAdminName = string.IsNullOrWhiteSpace(req.BootstrapAdminName) ? null : req.BootstrapAdminName.Trim(),
@@ -51,6 +91,29 @@ public static class TenantEndpoints
         db.Tenants.Add(tenant);
         await db.SaveChangesAsync();
 
+        // Custom connection: always provision (schema in the tenant's own
+        // database). Default server: physical provisioning when a
+        // provisioning connection is configured, else usable immediately.
+        if (hasCustom)
+        {
+            try
+            {
+                await ApiHelpers.ProvisionCustomTenantStoreAsync(customConn!, dbName, schema);
+            }
+            catch (Exception ex)
+            {
+                tenant.Status = TenantStatus.Failed;
+                tenant.DbStatus = TenantDbStatus.Failed;
+                tenant.DbError = ex.Message;
+                tenant.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync();
+                await ApiHelpers.Audit(db, tenant.Id, ApiHelpers.ActorId(ctx), ApiHelpers.RequireRole(ctx), "tenant.create", "tenant", tenant.Id, ex.Message, ctx);
+                return ApiErrors.Problem(ErrorCodes.ProvisionFailed, $"Tenant store provisioning failed: {ex.Message}", 502, retryable: true);
+            }
+            await db.SaveChangesAsync();
+            await ApiHelpers.Audit(db, tenant.Id, ApiHelpers.ActorId(ctx), ApiHelpers.RequireRole(ctx), "tenant.create", "tenant", tenant.Id, null, ctx);
+            return Results.Json(new { data = tenant }, statusCode: 202);
+        }
         // Physical provisioning (CREATE DATABASE / CREATE SCHEMA) when a
         // provisioning connection is configured; otherwise the tenant is usable
         // immediately on the legacy shared store.
@@ -86,11 +149,11 @@ public static class TenantEndpoints
     }).RequireAuthorization("PlatformAny");
 
     // Update tenant (Admin only): name/contactEmail/domain/pathPrefix/resolutionMode.
-    // dbName/schema/slug/id are immutable → 422 IMMUTABLE_FIELD.
+    // dbName/schema/slug/id/deploymentMode/connection/bootstrap are immutable → 422 IMMUTABLE_FIELD.
     app.MapPatch("/api/v1/platform/tenants/{tid}", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg, string tid, JsonElement body) =>
     {
         if (ApiHelpers.RequireRole(ctx) != "Admin") return ApiErrors.Problem(ErrorCodes.Forbidden, "Maintainer is read-only for tenants.", 403);
-        foreach (var immutable in new[] { "id", "slug", "dbName", "schema", "deploymentMode", "bootstrapAdminEmail", "bootstrapAdminName" })
+        foreach (var immutable in new[] { "id", "slug", "dbName", "schema", "deploymentMode", "bootstrapAdminEmail", "bootstrapAdminName", "dbConnectionString" })
             if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty(immutable, out _))
                 return ApiErrors.Problem(ErrorCodes.ImmutableField, $"Field '{immutable}' is immutable.", 422, new { field = immutable });
         var tenant = await db.Tenants.FindAsync(tid);
@@ -105,7 +168,7 @@ public static class TenantEndpoints
         if (failures.Count > 0)
             return ApiErrors.Problem(ErrorCodes.ValidationError, "Tenant validation failed.",
                 400, failures.Select(f => new { field = f.Field, message = f.Message }));
-        var dup = await ApiHelpers.DuplicateTenantFieldAsync(db, tid, name.Trim(), tenant.Slug, domain, pathPrefix, pathBase: pathBase);
+        var dup = await ApiHelpers.DuplicateTenantFieldAsync(db, tid, name.Trim(), tenant.Slug, domain, pathPrefix, pathBase: pathBase, hasCustomConnection: tenant.HasCustomConnection);
         if (dup is not null) return dup;
         tenant.Name = name.Trim();
         tenant.ContactEmail = contactEmail!.Trim();
@@ -158,7 +221,7 @@ public static class TenantEndpoints
     }).RequireAuthorization("PlatformAny");
 
     // Retry physical provisioning for a Failed tenant (Admin only).
-    app.MapPost("/api/v1/platform/tenants/{tid}/provision:retry", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg, string tid) =>
+    app.MapPost("/api/v1/platform/tenants/{tid}/provision:retry", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg, TenantConnectionProtector protector, string tid) =>
     {
         if (ApiHelpers.RequireRole(ctx) != "Admin") return ApiErrors.Problem(ErrorCodes.Forbidden, "Maintainer is read-only for tenants.", 403);
         var tenant = await db.Tenants.FindAsync(tid);
@@ -168,15 +231,24 @@ public static class TenantEndpoints
         if (tenant.DbStatus == TenantDbStatus.Provisioning)
             return ApiErrors.Problem(ErrorCodes.ValidationError, "Provisioning is already in progress.", 409);
         var provisionConn = cfg["TenantStores:ProvisioningConnection"];
-        if (string.IsNullOrWhiteSpace(provisionConn))
+        if (!tenant.HasCustomConnection && string.IsNullOrWhiteSpace(provisionConn))
             return ApiErrors.Problem(ErrorCodes.ProvisionFailed, "No provisioning connection configured.", 502, retryable: false);
         tenant.DbStatus = TenantDbStatus.Provisioning;
         tenant.Status = TenantStatus.Provisioning;
         tenant.DbError = null;
         tenant.UpdatedAt = DateTimeOffset.UtcNow;
+        Func<Task> provision = tenant.HasCustomConnection
+            ? async () =>
+            {
+                var plain = protector.TryUnprotect(tenant.DbConnectionEncrypted);
+                if (plain is null)
+                    throw new InvalidOperationException("Stored connection cannot be decrypted.");
+                await ApiHelpers.ProvisionCustomTenantStoreAsync(plain, tenant.DbName, tenant.Schema);
+            }
+            : async () => await ApiHelpers.ProvisionTenantStoreAsync(provisionConn!, cfg["TenantStores:SharedDatabase"] ?? "module_platform", tenant);
         try
         {
-            await ApiHelpers.ProvisionTenantStoreAsync(provisionConn, cfg["TenantStores:SharedDatabase"] ?? "module_platform", tenant);
+            await provision();
         }
         catch (Exception ex)
         {

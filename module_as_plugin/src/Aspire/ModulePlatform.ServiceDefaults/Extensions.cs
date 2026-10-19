@@ -16,6 +16,28 @@ namespace ModulePlatform.ServiceDefaults;
 
 public static class Extensions
 {
+    public const string DevJwtSecret = "dev-only-secret-key-min-32-chars!!";
+    public const string DevInternalKey = "dev-internal-key";
+
+    // Fail-closed secret resolution. Development falls back to the well-known
+    // dev value (written back into configuration so later reads agree);
+    // every other environment aborts startup when the secret is missing,
+    // shorter than minLength, or still the dev default.
+    public static string RequireSecret(this IHostApplicationBuilder builder, string key, string devDefault, int minLength = 32)
+    {
+        var value = builder.Configuration[key];
+        if (builder.Environment.IsDevelopment())
+        {
+            if (string.IsNullOrWhiteSpace(value)) builder.Configuration[key] = value = devDefault;
+            return value;
+        }
+        if (string.IsNullOrWhiteSpace(value) || value == devDefault || value.Length < minLength)
+            throw new InvalidOperationException(
+                $"Required secret '{key}' is missing, shorter than {minLength} characters, or the development default. " +
+                $"Set it via environment variable '{key.Replace(":", "__")}' or a secret store.");
+        return value;
+    }
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();

@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ModulePlatform.ServiceDefaults;
@@ -20,7 +21,8 @@ builder.AddServiceDefaults();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var jwtSecret = builder.Configuration["Jwt:SecretKey"] ?? "dev-only-secret-key-min-32-chars!!";
+var jwtSecret = builder.RequireSecret("Jwt:SecretKey", Extensions.DevJwtSecret);
+builder.RequireSecret("InternalApi:Key", Extensions.DevInternalKey);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
     {
@@ -45,6 +47,16 @@ builder.Services.AddDbContext<CatalogDbContext>(o => o.UseNpgsql(catalogConn));
 builder.Services.AddScoped<IModuleLifecyclePorts, EfLifecyclePorts>();
 builder.Services.AddScoped<ModuleLifecycleService>();
 builder.Services.AddHttpClient("lifecycle", c => c.Timeout = TimeSpan.FromSeconds(30));
+
+// Data Protection key ring for tenant connection secrets. Persisted to disk
+// (DataProtection:KeyDirectory, default ./keys) — without persistence every
+// stored secret is orphaned on restart/redeploy.
+var keyDir = Path.GetFullPath(
+    builder.Configuration["DataProtection:KeyDirectory"] ?? "./keys",
+    builder.Environment.ContentRootPath);
+Directory.CreateDirectory(keyDir);
+builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyDir));
+builder.Services.AddSingleton<TenantConnectionProtector>();
 
 var app = builder.Build();
 app.MapDefaultEndpoints();

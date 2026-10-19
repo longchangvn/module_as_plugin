@@ -144,8 +144,13 @@ public sealed class SeedApplier(TenantDbContext db)
         return new SeedDiff(added);
     }
 
-    public async Task RevokeAsync(string moduleId, CancellationToken ct)
+    // Returns false (nothing changed) when removing the module's system roles
+    // would remove the tenant's last admin grant (edge case 12, LAST_ADMIN).
+    public async Task<bool> RevokeAsync(string moduleId, CancellationToken ct)
     {
+        var moduleRoleIds = await db.Roles.Where(r => r.ModuleId == moduleId && r.IsSystem).Select(r => r.Id).ToListAsync(ct);
+        if (moduleRoleIds.Count > 0 && await LastAdminGuard.WouldLockOutAsync(db, g => moduleRoleIds.Contains(g.RoleId), ct))
+            return false;
         var permIds = await db.Permissions.Where(p => p.ModuleId == moduleId).Select(p => p.Id).ToListAsync(ct);
 
         // Remove grants of module permissions (roles + direct), keep custom roles themselves.
@@ -157,6 +162,7 @@ public sealed class SeedApplier(TenantDbContext db)
         db.Roles.RemoveRange(db.Roles.Where(r => r.ModuleId == moduleId && r.IsSystem));
         db.Menus.RemoveRange(db.Menus.Where(x => x.ModuleId == moduleId));
         await db.SaveChangesAsync(ct);
+        return true;
     }
 
     public SeedDiff Preview(ManifestFile m) => new(

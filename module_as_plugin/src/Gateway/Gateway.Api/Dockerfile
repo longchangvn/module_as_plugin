@@ -2,6 +2,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY ModulePlatform.sln ./
+COPY src/Aspire/ModulePlatform.ServiceDefaults/ModulePlatform.ServiceDefaults.csproj src/Aspire/ModulePlatform.ServiceDefaults/
 COPY src/Gateway/Gateway.Api/*.csproj src/Gateway/Gateway.Api/
 RUN dotnet restore src/Gateway/Gateway.Api/Gateway.Api.csproj
 COPY . .

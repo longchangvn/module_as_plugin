@@ -105,6 +105,13 @@ public sealed class DependencyResolverTests
     }
 
     [Fact]
+    public void Descending_uses_semver_precedence_not_string_order()
+    {
+        Assert.Equal(["1.10.0", "1.9.0", "1.2.0", "1.0.0-beta"], SemverOrdering.Descending(["1.9.0", "1.0.0-beta", "1.10.0", "1.2.0"]));
+        Assert.Equal("1.10.0", SemverOrdering.Latest(["1.9.0", "1.10.0"]));
+    }
+
+    [Fact]
     public void Permission_union_dedupes()
     {
         var effective = PermissionService.Effective(

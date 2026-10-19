@@ -7,6 +7,17 @@ public static class GatewayHelpers
         path.StartsWithSegments("/swagger") ||
         string.Equals(path.Value, "/healthz", StringComparison.OrdinalIgnoreCase);
 
+    // Password-accepting endpoints throttled per client IP at the edge (FR-A5).
+    private static readonly string[] CredentialPaths =
+    [
+        "/api/v1/platform/auth/login", "/api/v1/platform/auth/change-password",
+        "/api/v1/auth/login", "/api/v1/auth/change-password",
+    ];
+
+    public static bool IsCredentialRequest(HttpRequest req) =>
+        HttpMethods.IsPost(req.Method) &&
+        CredentialPaths.Any(p => string.Equals(req.Path.Value?.TrimEnd('/'), p, StringComparison.OrdinalIgnoreCase));
+
     public static bool UseDevKey(HttpContext ctx, IConfiguration cfg, bool isDevelopment) =>
         isDevelopment &&
         ctx.Request.Headers.TryGetValue("X-API-Key", out var key) &&

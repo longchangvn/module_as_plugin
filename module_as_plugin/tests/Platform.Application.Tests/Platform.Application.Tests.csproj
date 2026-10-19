@@ -1,6 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Platform\Platform.Application\Platform.Application.csproj" />
+    <ProjectReference Include="..\..\src\Platform\Platform.Domain\Platform.Domain.csproj" />
     <ProjectReference Include="..\..\src\Shared\SharedKernel\SharedKernel.csproj" />
   </ItemGroup>
 

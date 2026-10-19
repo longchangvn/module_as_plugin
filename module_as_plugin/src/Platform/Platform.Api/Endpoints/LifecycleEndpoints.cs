@@ -31,6 +31,8 @@ public static class LifecycleEndpoints
         }
         var sem = InstallLock(installLocks, tenantId, moduleId);
         await sem.WaitAsync();
+        // R8 across replicas: PG advisory lock keyed on (tenant, module).
+        await using var distLock = await Platform.Api.Services.InstallLock.AcquireAsync(db, tenantId, moduleId, ctx.RequestAborted);
         try
         {
             var result = await svc.InstallAsync(tenantId, moduleId, version, ApiHelpers.ActorId(ctx),
@@ -48,6 +50,7 @@ public static class LifecycleEndpoints
         var (_, tenantError) = await ApiHelpers.RequireUsableTenantAsync(db, tid);
         if (tenantError is not null) return tenantError;
         if (ApiHelpers.CheckTenantHeader(ctx, tid) is { } headerError) return headerError;
+        await using var distLock = await Platform.Api.Services.InstallLock.AcquireAsync(db, tid, id, ctx.RequestAborted); // R8 across replicas
         var install = await db.Installs.FindAsync(tid, id);
         if (install is null) return ApiErrors.Problem(ErrorCodes.ModuleNotInstalled, $"Module '{id}' not installed.", 404);
         // R7: dependencies enabled — gate on install states (health check is the module's /readyz).
@@ -77,6 +80,7 @@ public static class LifecycleEndpoints
         var (_, tenantError) = await ApiHelpers.RequireUsableTenantAsync(db, tid);
         if (tenantError is not null) return tenantError;
         if (ApiHelpers.CheckTenantHeader(ctx, tid) is { } headerError) return headerError;
+        await using var distLock = await Platform.Api.Services.InstallLock.AcquireAsync(db, tid, id, ctx.RequestAborted); // R8 across replicas
         var install = await db.Installs.FindAsync(tid, id);
         if (install is null) return ApiErrors.Problem(ErrorCodes.ModuleNotInstalled, $"Module '{id}' not installed.", 404);
         var manifest = await ports.GetManifestAsync(id, install.Version, ctx.RequestAborted);
@@ -97,6 +101,7 @@ public static class LifecycleEndpoints
         var (_, tenantError) = await ApiHelpers.RequireUsableTenantAsync(db, tid);
         if (tenantError is not null) return tenantError;
         if (ApiHelpers.CheckTenantHeader(ctx, tid) is { } headerError) return headerError;
+        await using var distLock = await Platform.Api.Services.InstallLock.AcquireAsync(db, tid, id, ctx.RequestAborted); // R8 across replicas
         var states = await db.Installs.Where(i => i.TenantId == tid).AsNoTracking().ToListAsync();
         // R2 guard: implemented against stored manifests' dependency lists
         var blockers = new List<string>();
@@ -125,11 +130,13 @@ public static class LifecycleEndpoints
         var uninstallManifest = await ports.GetManifestAsync(id, install.Version, ctx.RequestAborted);
         if (uninstallManifest is not null)
         {
+            // Seed revoke first: it can refuse (LAST_ADMIN) before any gateway change.
             try
             {
-                await ports.RemoveModuleRoutesAsync(tid, uninstallManifest, ctx.RequestAborted);
                 await ports.RevokeSeedAsync(tid, uninstallManifest, ctx.RequestAborted);
+                await ports.RemoveModuleRoutesAsync(tid, uninstallManifest, ctx.RequestAborted);
             }
+            catch (LifecycleRejectedException ex) { return ApiErrors.Problem(ex.Code, ex.Message, 409); }
             catch (Exception ex) { return ApiErrors.Problem(ErrorCodes.ProvisionFailed, ex.Message, 502, retryable: true); }
         }
         db.Installs.Remove(install);
@@ -146,6 +153,7 @@ public static class LifecycleEndpoints
         if (ApiHelpers.CheckTenantHeader(ctx, tid) is { } headerError) return headerError;
         var sem = InstallLock(installLocks, tid, id);
         await sem.WaitAsync();
+        await using var distLock = await Platform.Api.Services.InstallLock.AcquireAsync(db, tid, id, ctx.RequestAborted);
         try
         {
             var result = await svc.UpgradeAsync(tid, id, toVersion, ApiHelpers.ActorId(ctx), ApiHelpers.ActorRole(ctx), ctx.RequestAborted);

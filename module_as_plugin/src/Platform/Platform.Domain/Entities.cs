@@ -1,4 +1,6 @@
 // Platform catalog domain — §10.1. Pure entities, no EF attributes (configured in Infrastructure).
+using System.Text.Json.Serialization;
+
 namespace Platform.Domain;
 
 public enum PlatformRole { Admin, Maintainer }
@@ -36,6 +38,12 @@ public sealed class Tenant
     public string DbName { get; set; } = "";
     public string Schema { get; set; } = "public";
     public string DeploymentMode { get; set; } = "dedicated"; // dedicated | shared
+    // Custom per-tenant database connection (dedicated only), encrypted with
+    // Data Protection. Null = platform default server. Never serialized
+    // ([JsonIgnore]); HasCustomConnection exposes only set-vs-default.
+    [JsonIgnore]
+    public string? DbConnectionEncrypted { get; set; }
+    public bool HasCustomConnection => !string.IsNullOrEmpty(DbConnectionEncrypted);
     public TenantDbStatus DbStatus { get; set; } = TenantDbStatus.Ready;
     public string? DbError { get; set; }
     public string? SchemaVersion { get; set; }

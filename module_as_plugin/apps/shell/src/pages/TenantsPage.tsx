@@ -30,6 +30,7 @@ interface Tenant {
   dbError?: string | null;
   schemaVersion?: string | null;
   contactEmail?: string;
+  hasCustomConnection?: boolean;
 }
 
 interface TenantAudit {
@@ -264,6 +265,8 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
   const [contactEmail, setContactEmail] = useState('');
   const [bootstrapAdminEmail, setBootstrapAdminEmail] = useState('');
   const [bootstrapAdminName, setBootstrapAdminName] = useState('');
+  const [dbConn, setDbConn] = useState('');
+  const [connOpen, setConnOpen] = useState(false);
 
   // Reset fields (and stale errors) every time the dialog opens.
   useEffect(() => {
@@ -280,6 +283,8 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
     setContactEmail(tenant?.contactEmail ?? '');
     setBootstrapAdminEmail('');
     setBootstrapAdminName('');
+    setDbConn('');
+    setConnOpen(false);
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -298,6 +303,7 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
         base.deploymentMode = deploymentMode;
         base.dbName = dbName.trim() || undefined;
         if (deploymentMode === 'shared') base.schema = schema.trim();
+        if (deploymentMode === 'dedicated' && dbConn.trim()) base.dbConnectionString = dbConn.trim();
         if (bootstrapAdminEmail.trim()) {
           base.bootstrapAdminEmail = bootstrapAdminEmail.trim();
           if (bootstrapAdminName.trim()) base.bootstrapAdminName = bootstrapAdminName.trim();
@@ -321,9 +327,17 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
           <DialogTitle>{isEdit ? `Edit ${tenant?.name}` : 'Create tenant'}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Name, contact, and resolution can change. Slug, database, and schema are immutable.'
+              ? 'Name, contact, and resolution can change. Slug, database, connection, and schema are immutable.'
               : 'A new isolated workspace with its own catalog, users, and storefront.'}
           </DialogDescription>
+          {isEdit && (
+            <p className="text-xs text-muted-foreground">
+              Database connection:{' '}
+              <span className="font-medium text-foreground">
+                {tenant?.hasCustomConnection ? 'custom (encrypted, immutable)' : 'platform default'}
+              </span>
+            </p>
+          )}
         </DialogHeader>
         <form
           className="space-y-4"
@@ -426,7 +440,37 @@ function TenantFormDialog({ open, onOpenChange, tenant, error, setError, onSaved
                   )}
                 </div>
               )}
-              <p className="text-xs text-muted-foreground">Database, schema, and slug are immutable after creation.</p>
+              <p className="text-xs text-muted-foreground">Database, schema, connection, and slug are immutable after creation.</p>
+              {deploymentMode === 'dedicated' && (
+                <div className="rounded-md border">
+                  <button
+                    type="button"
+                    onClick={() => setConnOpen((v) => !v)}
+                    aria-expanded={connOpen}
+                    className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-medium"
+                  >
+                    Custom database connection (optional)
+                    <span aria-hidden className="text-muted-foreground">{connOpen ? '−' : '+'}</span>
+                  </button>
+                  {connOpen && (
+                    <div className="space-y-1.5 border-t p-4">
+                      <Label htmlFor="tenant-dbconn">Connection string</Label>
+                      <textarea
+                        id="tenant-dbconn"
+                        value={dbConn}
+                        onChange={(e) => setDbConn(e.target.value)}
+                        placeholder="Host=db.internal;Port=5432;Username=app;Password=…;Database=tenant_acme"
+                        rows={3}
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Blank = platform default server. The Database inside is honored; tables go into
+                        schema derived from the slug. Stored encrypted, never shown again, immutable after creation.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
           {!isEdit && (

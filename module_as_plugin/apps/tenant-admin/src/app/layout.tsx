@@ -1,19 +1,30 @@
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Home, KeyRound, LogOut, ShieldCheck, UserCog, Users } from 'lucide-react';
+import { Home, KeyRound, LogOut, Puzzle, ShieldCheck, UserCog, UserRound, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSession } from './session';
 import { cn } from '@/lib/utils';
+import type { BootstrapModule } from '@/lib/bootstrap';
 
 const NAV = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/users', label: 'Users', icon: Users, end: false },
   { to: '/roles', label: 'Roles', icon: UserCog, end: false },
   { to: '/permissions', label: 'Permissions', icon: KeyRound, end: false },
+  { to: '/profile', label: 'Profile', icon: UserRound, end: false },
 ];
 
-export function TenantLayout({ children }: { children: React.ReactNode }) {
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm',
+    isActive ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-muted/60',
+  );
+
+export function TenantLayout({ children, modules = [] }: { children: React.ReactNode; modules?: BootstrapModule[] }) {
   const { session, logout } = useSession();
   const navigate = useNavigate();
+  const moduleMenus = modules
+    .flatMap((m) => m.menus.filter((x) => x.route).map((menu) => ({ moduleId: m.moduleId, menu })))
+    .sort((a, b) => a.menu.order - b.menu.order);
 
   function signOut() {
     logout();
@@ -35,19 +46,15 @@ export function TenantLayout({ children }: { children: React.ReactNode }) {
           </Link>
           <nav className="ml-4 flex items-center gap-1" aria-label="Tenant admin">
             {NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm',
-                    isActive ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-muted/60',
-                  )
-                }
-              >
+              <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass}>
                 <item.icon className="h-4 w-4" aria-hidden />
                 {item.label}
+              </NavLink>
+            ))}
+            {moduleMenus.map(({ moduleId, menu }) => (
+              <NavLink key={`${moduleId}:${menu.id}`} to={menu.route!} className={navLinkClass}>
+                <Puzzle className="h-4 w-4" aria-hidden />
+                {menu.title}
               </NavLink>
             ))}
           </nav>

@@ -29,6 +29,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Name).IsUnique();
             e.HasIndex(x => x.Slug).IsUnique();
+            e.Ignore(x => x.HasCustomConnection);
         });
         b.Entity<PlatformModule>(e => e.HasKey(x => x.Id));
         b.Entity<ModuleVersion>(e =>

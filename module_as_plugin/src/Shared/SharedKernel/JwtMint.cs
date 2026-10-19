@@ -20,6 +20,7 @@ public static class JwtMint
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    // Validated (and dev-defaulted) at startup by RequireSecret; no fallback here.
     public static string Secret(IConfiguration cfg) =>
-        cfg["Jwt:SecretKey"] ?? "dev-only-secret-key-min-32-chars!!";
+        cfg["Jwt:SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey is not configured.");
 }

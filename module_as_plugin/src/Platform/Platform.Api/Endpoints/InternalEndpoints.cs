@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Models;
+using Platform.Api.Services;
 using Platform.Application;
 using Platform.Domain;
 using Platform.Infrastructure;
@@ -34,6 +37,7 @@ public static class InternalEndpoints
             {
                 id = t.Id, status = t.Status.ToString(), dbStatus = t.DbStatus.ToString(),
                 deploymentMode = t.DeploymentMode, dbName = t.DbName, schema = t.Schema,
+                hasCustomConnection = t.HasCustomConnection,
                 bootstrapAdminEmail = t.BootstrapAdminEmail, bootstrapAdminName = t.BootstrapAdminName,
             } });
     });
@@ -47,8 +51,34 @@ public static class InternalEndpoints
             {
                 id = t.Id, status = t.Status.ToString(), dbStatus = t.DbStatus.ToString(),
                 deploymentMode = t.DeploymentMode, dbName = t.DbName, schema = t.Schema,
+                hasCustomConnection = t.HasCustomConnection,
                 bootstrapAdminEmail = t.BootstrapAdminEmail, bootstrapAdminName = t.BootstrapAdminName,
             } });
+    });
+
+    // Cluster-internal custom connection hand-off to Auth. Decrypts server-side
+    // and returns the plaintext connection string. Requires the shared
+    // X-Internal-Key (InternalApi:Key from env — never the DB, never browsers).
+    // NOT routed by the gateway.
+    app.MapGet("/internal/tenants/{id}/connection", async (
+        CatalogDbContext db, HttpContext ctx, IConfiguration cfg, TenantConnectionProtector protector, string id) =>
+    {
+        var expected = cfg["InternalApi:Key"];
+        var presented = ctx.Request.Headers["X-Internal-Key"].FirstOrDefault() ?? "";
+        var ok = !string.IsNullOrWhiteSpace(expected) &&
+            CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(presented));
+        if (!ok)
+            return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid internal key.", 401);
+        var t = await db.Tenants.FindAsync(id);
+        if (t is null)
+            return ApiErrors.Problem(ErrorCodes.UnknownTenant, $"Unknown tenant '{id}'.", 404);
+        if (!t.HasCustomConnection)
+            return ApiErrors.Problem(ErrorCodes.ValidationError, "Tenant has no custom connection.", 404);
+        var plain = protector.TryUnprotect(t.DbConnectionEncrypted);
+        if (plain is null)
+            return ApiErrors.Problem(ErrorCodes.ProvisionFailed, "Stored connection cannot be decrypted.", 502, retryable: false);
+        return Results.Json(new { data = new { tenantId = t.Id, connectionString = plain } });
     });
     app.MapPost("/internal/tenants/{id}/provisioned", async (CatalogDbContext db, string id, JsonElement body) =>
     {

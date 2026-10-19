@@ -73,25 +73,45 @@
       }
     },
     {
-      "Key": "rt_loyalty_215f9376",
-      "UpstreamPathTemplate": "/api/v1/loyalty/members/{rest}",
+      "Key": "rt_sample2_22369adf",
+      "UpstreamPathTemplate": "/api/v1/sample2/{rest}",
       "UpstreamHttpMethod": [
-        "GET",
-        "POST"
+        "GET"
       ],
-      "DownstreamPathTemplate": "/api/v1/members/{rest}",
+      "DownstreamPathTemplate": "/api/v1/{rest}",
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
           "Host": "localhost",
-          "Port": 5200
+          "Port": 5203
         }
       ],
       "Priority": 10,
       "Metadata": {
-        "serviceId": "loyalty",
+        "serviceId": "sample2",
         "source": "module-install",
-        "managedBy": "module:loyalty"
+        "managedBy": "module:sample2"
+      }
+    },
+    {
+      "Key": "rt_sample1_501a14aa",
+      "UpstreamPathTemplate": "/api/v1/sample1/{rest}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamPathTemplate": "/api/v1/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5202
+        }
+      ],
+      "Priority": 10,
+      "Metadata": {
+        "serviceId": "sample1",
+        "source": "module-install",
+        "managedBy": "module:sample1"
       }
     }
   ],

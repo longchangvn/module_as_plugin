@@ -143,6 +143,9 @@ public static class SemverOrdering
     public static string Latest(IEnumerable<string> versions) =>
         versions.OrderByDescending(v => SemVersion.Parse(v, SemVersionStyles.Strict), Comparer)
             .First().ToString();
+
+    public static IReadOnlyList<string> Descending(IEnumerable<string> versions) =>
+        versions.OrderByDescending(v => SemVersion.Parse(v, SemVersionStyles.Strict), Comparer).ToList();
 }
 
 // Dependency resolver — P-BR6 / R2 / R3: topo-sort, cycle detection, range conflicts.

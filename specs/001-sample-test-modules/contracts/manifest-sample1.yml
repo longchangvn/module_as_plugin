@@ -1,0 +1,75 @@
+# Target manifest for modules/sample1/manifest.yml (published as-is).
+manifestVersion: "1.0"
+
+module:
+  name: sample1
+  displayName: Sample Module 1
+  description: Test module - open sample data button + permission-gated protected data button.
+  version: 1.0.0
+  owner: platform-team@company.com
+  license: proprietary
+  icon: box
+  category: ops
+
+dependencies: []
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+  openapiUrl: /swagger/v1/swagger.json
+
+frontend:
+  remoteUrl: http://localhost:5176/assets/remoteEntry.js
+  scope: sample1_remote
+  modulePrefix: /sample1
+  routes:
+    - path: /sample1
+      exposes: ./Page
+      requiredPermission: null
+      menuId: sample1
+  menus:
+    - id: sample1
+      parentId: null
+      title: Sample Module 1
+      icon: box
+      route: /sample1
+      requiredPermission: null
+      order: 30
+  uiPermissions: [SAMPLE_ONE_DATA_PROTECTED]
+
+api:
+  routes:
+    - upstream: /api/v1/sample1/{rest}
+      downstream: /api/v1/{rest}
+      methods: [GET]
+      auth: true
+      requiredPermission: null
+      priority: 10
+  seed:
+    roles:
+      - name: Sample 1 Viewer
+        description: Can view Sample Module 1 protected data
+        isSystem: true
+    permissions:
+      - code: SAMPLE_ONE_DATA_VIEW
+        object: SAMPLE_ONE_DATA
+        action: VIEW
+        name: View Sample Module 1 data
+        isMenuAccess: true
+      - code: SAMPLE_ONE_DATA_PROTECTED
+        object: SAMPLE_ONE_DATA
+        action: PROTECTED
+        name: View Sample Module 1 protected data
+        isMenuAccess: false
+    menus: []
+    userRoles: []
+    rolePermissions:
+      - roleName: Sample 1 Viewer
+        permissions: [SAMPLE_ONE_DATA_VIEW, SAMPLE_ONE_DATA_PROTECTED]
+    userAdditionalPermissions: []
+    users: []
+    gatewayRules: []
+
+upgrade:
+  notes: "Initial release."
+  migrateEndpoint: /internal/migrate

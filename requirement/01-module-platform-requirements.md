@@ -191,21 +191,34 @@ POST   /api/v1/platform/tenants/{tid}/modules/{id}/disable   {reason}
 POST   /api/v1/platform/tenants/{tid}/modules/{id}/uninstall {confirmDependents}
 POST   /api/v1/platform/tenants/{tid}/modules/{id}/upgrade   {toVersion}
 GET    /api/v1/platform/tenants                       tenant CRUD (existing semantics)
-POST   /api/v1/platform/tenants                       create tenant → 201 Active (no store config) or 202 Provisioning; accepts deploymentMode/dbName/schema + bootstrapAdminEmail/bootstrapAdminName
-PATCH  /api/v1/platform/tenants/{tid}                 update name/contactEmail/domain/pathPrefix/resolutionMode; slug/dbName/schema/deploymentMode/bootstrapAdmin* immutable → 422
+POST   /api/v1/platform/tenants                       create tenant → 201 Active (no store config) or 202 Provisioning; accepts deploymentMode/dbName/schema + bootstrapAdminEmail/bootstrapAdminName + optional dbConnectionString (dedicated only, immutable)
+PATCH  /api/v1/platform/tenants/{tid}                 update name/contactEmail/domain/pathPrefix/resolutionMode; slug/dbName/schema/deploymentMode/bootstrapAdmin*/dbConnectionString immutable → 422
 POST   /api/v1/platform/tenants/{tid}/disable {reason} disable (reason required) → tenant logins/APIs 403; POST .../enable re-activates
 POST   /api/v1/platform/tenants/{tid}/provision:retry  retry store provisioning (Failed → Provisioning)
 GET    /api/v1/platform/tenants/{tid}/audits          recent audit trail (tenant.create/update/disable/enable/provision-retry)
 ```
 
 Tenant creation with a bootstrap admin: `POST /api/v1/platform/tenants`
-`{ name, slug, contactEmail, deploymentMode?, dbName?, schema?, bootstrapAdminEmail?, bootstrapAdminName? }`
+`{ name, slug, contactEmail, deploymentMode?, dbName?, schema?, bootstrapAdminEmail?, bootstrapAdminName?, dbConnectionString? }`
 stores the bootstrap identity on the tenant row (immutable after creation). On first
 use of the tenant store (first login or first tenant-scoped write), Auth migrates the
 store and seeds that email as the first tenant user (name defaults to the email local
 part), then the tenant flips to `Active`/`Ready` — so the very first tenant login with
-the bootstrap email succeeds. Passwords are stub-verified in v1 (any password works);
-temporary-password rotation is a follow-up when real password verify lands.
+the bootstrap email succeeds. The bootstrap user has no password until first
+login: Development accepts the first password and stores it as Argon2id
+(claim-on-first-login); Production never accepts an unverified password.
+Temporary-password rotation is a follow-up.
+
+Custom database connection (dedicated tenants only): `POST
+/api/v1/platform/tenants` accepts optional `dbConnectionString` (must include
+`Host` + `Database`, immutable after creation, rejected with `shared` mode).
+When present, `dbName` is taken from its `Database` and tables live under a
+slug-derived schema; provisioning creates the database (if missing) and the
+schema on that server. The string is stored Data-Protection-encrypted
+(`tenants.dbConnectionEncrypted`, never returned by APIs) and handed to Auth
+at runtime via cluster-internal `GET /internal/tenants/{id}/connection`
+(`X-Internal-Key` required). Absent → platform default server. Uniqueness for
+custom tenants is the (server, database, schema) tuple.
 
 ### 9.2 Tenant self-service catalog (Tenant Admin)
 
@@ -268,7 +281,7 @@ Codes: `UNKNOWN_TENANT, TENANT_DISABLED, UNKNOWN_MODULE, MODULE_ALREADY_INSTALLE
 
 ```text
 platform_users(id PK cuid, email UK CI, name, passwordHash Argon2, role Admin|Maintainer, isActive, lastLoginAt, createdAt, updatedAt)
-tenants(id PK, name UK CI, slug UK, status, resolutionMode, domain UK NULL, pathPrefix UK NULL, dbName, schema, dbStatus, dbError NULL, schemaVersion NULL, bootstrapAdminEmail NULL, bootstrapAdminName NULL, contactEmail, createdAt, updatedAt)
+tenants(id PK, name UK CI, slug UK, status, resolutionMode, domain UK NULL, pathPrefix UK NULL, dbName, schema, dbStatus, dbError NULL, schemaVersion NULL, bootstrapAdminEmail NULL, bootstrapAdminName NULL, dbConnectionEncrypted NULL (Data Protection ciphertext, dedicated-only custom connection; null = platform default), contactEmail, createdAt, updatedAt)
 platform_modules(id PK slug e.g. loyalty, displayName, description, owner, icon, category, status AVAILABLE|DEPRECATED, createdAt, updatedAt)
 module_versions(id PK cuid, moduleId FK, version semver, manifestYaml TEXT, manifestHash, artifactApiUrl, artifactRemoteUrl, status, publishedBy, publishedAt; UNIQUE(moduleId, version))
 tenant_module_installs(tenantId FK, moduleId, version, state NOT_INSTALLED|INSTALLING|INSTALLED|DISABLED|FAILED|UNINSTALLING, enabled bool, installedAt, updatedAt, error NULL; PK(tenantId, moduleId))
@@ -451,6 +464,8 @@ modules/{name}/
 | Module API called while disabled | 503 | `MODULE_DISABLED {moduleId}` |
 | Gateway apply / provision failure | 502/503 | `GATEWAY_APPLY_FAILED` / `PROVISION_FAILED {retryable}` |
 | Auth unreachable on permission check | 503 | `AUTHZ_UNAVAILABLE {retryable:true}` (fail closed) |
+| Change would remove the tenant's last admin grant (user/role deactivate, role unassign, module uninstall) | 409 | `LAST_ADMIN` |
+| Too many login / change-password attempts (gateway, 10/min/IP) | 429 | `RATE_LIMITED {retryAfterSeconds}` |
 
 UI: inline field errors, keeps form open, never reports success before confirmed state poll reaches terminal status.
 

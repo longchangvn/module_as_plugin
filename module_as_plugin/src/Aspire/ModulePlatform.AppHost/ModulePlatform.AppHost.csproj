@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\Auth\Auth.Api\Auth.Api.csproj" />
     <ProjectReference Include="..\..\Gateway\Gateway.Api\Gateway.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Loyalty\Loyalty.Api\Loyalty.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Sample1\Sample1.Api\Sample1.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Sample2\Sample2.Api\Sample2.Api.csproj" />
     <ProjectReference Include="..\..\Platform\Platform.Api\Platform.Api.csproj" />
   </ItemGroup>
 

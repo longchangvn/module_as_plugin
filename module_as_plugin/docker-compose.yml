@@ -20,6 +20,7 @@ services:
       - "5100:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
     # Persist file stores across restarts by bind-mounting the individual files
     # (copy them out of the image once, then uncomment):
     # volumes:
@@ -47,6 +48,13 @@ services:
       TenantStores__Password: module_platform
       TenantStores__SharedDatabase: module_platform
       TenantStores__ProvisioningConnection: Host=postgres;Username=module_platform;Password=module_platform;Database=postgres
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+      InternalApi__Key: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY (>=32 chars, see .env.example)}
+      # DataProtection keys must survive restarts, otherwise issued JWTs are
+      # rejected after a container recreate (and OAuth state protection breaks).
+      DataProtection__KeyDirectory: /var/lib/dpkeys
+    volumes:
+      - dpkeys:/var/lib/dpkeys
     depends_on:
       - postgres
 
@@ -65,6 +73,8 @@ services:
       TenantStores__Username: module_platform
       TenantStores__Password: module_platform
       TenantStores__SharedDatabase: module_platform
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+      InternalApi__Key: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY (>=32 chars, see .env.example)}
     depends_on:
       - postgres
 
@@ -77,5 +87,84 @@ services:
     depends_on:
       - gateway
 
+  # Sample module API (:5201) — the platform registers it as a module service;
+  # gateway routes resolve its downstream from the published artifact API URL.
+  loyalty:
+    build:
+      context: .
+      dockerfile: src/Modules/Loyalty/Loyalty.Api/Dockerfile
+    ports:
+      - "5201:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+    depends_on:
+      - postgres
+      - gateway
+
+  # Module Federation remote (:5174) — remoteEntry.js for the shell to load.
+  loyalty-web:
+    build:
+      context: .
+      dockerfile: modules/loyalty/web/Dockerfile
+    ports:
+      - "5174:80"
+
+  # Sample test modules — APIs (:5202/:5203) + federation remotes (:5176/:5177).
+  sample1:
+    build:
+      context: .
+      dockerfile: src/Modules/Sample1/Sample1.Api/Dockerfile
+    ports:
+      - "5202:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+      Platform__BaseUrl: http://platform:8080
+      Auth__BaseUrl: http://auth:8080
+    depends_on:
+      - platform
+      - auth
+
+  sample2:
+    build:
+      context: .
+      dockerfile: src/Modules/Sample2/Sample2.Api/Dockerfile
+    ports:
+      - "5203:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+      Platform__BaseUrl: http://platform:8080
+      Auth__BaseUrl: http://auth:8080
+    depends_on:
+      - platform
+      - auth
+
+  sample1-web:
+    build:
+      context: .
+      dockerfile: modules/sample1/web/Dockerfile
+    ports:
+      - "5176:80"
+
+  sample2-web:
+    build:
+      context: .
+      dockerfile: modules/sample2/web/Dockerfile
+    ports:
+      - "5177:80"
+
+  # Tenant backoffice SPA (:5175) — proxies /api/v1 to the gateway.
+  tenant-admin:
+    build:
+      context: .
+      dockerfile: apps/tenant-admin/Dockerfile
+    ports:
+      - "5175:80"
+    depends_on:
+      - gateway
+
 volumes:
   pgdata:
+  dpkeys:

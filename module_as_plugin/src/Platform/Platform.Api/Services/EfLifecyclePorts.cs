@@ -84,6 +84,12 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
     public async Task ApplyGatewayRoutesAsync(string tenantId, ManifestFile manifest, bool enabled, CancellationToken ct)
     {
         var baseUrl = (cfg["Gateway:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
+        // A3 fix: the gateway must not guess the module's downstream — send the
+        // published artifact API base URL; falls back to registry/config inside
+        // the gateway when the artifact URL is absent.
+        var artifactApiUrl = await db.ModuleVersions.AsNoTracking()
+            .Where(x => x.ModuleId == manifest.Module.Name && x.Version == manifest.Module.Version)
+            .Select(x => x.ArtifactApiUrl).FirstOrDefaultAsync(ct);
         using var client = http.CreateClient("lifecycle");
         using var res = await client.PostAsJsonAsync($"{baseUrl}/api/v1/gateway/internal/module-routes",
             new
@@ -95,6 +101,7 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
                     methods = r.Methods.ToArray(),
                 }).ToArray(),
                 enabled,
+                baseUrl = artifactApiUrl,
             }, ct);
         if (!res.IsSuccessStatusCode)
         {
@@ -173,6 +180,9 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
         if (!res.IsSuccessStatusCode)
         {
             var body = await res.Content.ReadAsStringAsync(ct);
+            if (res.StatusCode == System.Net.HttpStatusCode.Conflict && body.Contains(ErrorCodes.LastAdmin))
+                throw new LifecycleRejectedException(ErrorCodes.LastAdmin,
+                    $"Uninstalling '{manifest.Module.Name}' would remove the tenant's last active admin; assign another admin first.");
             throw new InvalidOperationException($"Tenant seed revoke failed ({(int)res.StatusCode}): {body}");
         }
     }

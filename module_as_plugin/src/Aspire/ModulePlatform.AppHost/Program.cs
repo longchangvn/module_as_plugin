@@ -35,7 +35,8 @@ var auth = builder.AddProject<Projects.Auth_Api>("auth")
     .WithEnvironment("TenantStores__Port", pgPort.ToString())
     .WithEnvironment("TenantStores__Username", "postgres")
     .WithEnvironment("TenantStores__Password", pgPassword)
-    .WithEnvironment("TenantStores__SharedDatabase", "module_platform");
+    .WithEnvironment("TenantStores__SharedDatabase", "module_platform")
+    .WithEnvironment("InternalApi__Key", "dev-internal-key");
 
 var platform = builder.AddProject<Projects.Platform_Api>("platform")
     .WithEndpoint("http", e => { e.Port = 5121; e.IsProxied = false; })
@@ -45,7 +46,8 @@ var platform = builder.AddProject<Projects.Platform_Api>("platform")
     .WithReference(auth)
     .WithEnvironment("TenantStores__ProvisioningConnection", ReferenceExpression.Create(
         $"Host={pgHost};Port={pgPortString};Username=postgres;Password={pgPassword};Database=postgres"))
-    .WithEnvironment("TenantStores__SharedDatabase", "module_platform");
+    .WithEnvironment("TenantStores__SharedDatabase", "module_platform")
+    .WithEnvironment("InternalApi__Key", "dev-internal-key");
 
 auth.WithReference(platform);
 
@@ -54,6 +56,23 @@ var loyalty = builder.AddProject<Projects.Loyalty_Api>("loyalty")
     .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5201")
     .WithReference(platform);
 
+// Sample test modules (install lifecycle + permission-gated UI).
+var sample1 = builder.AddProject<Projects.Sample1_Api>("sample1")
+    .WithEndpoint("http", e => { e.Port = 5202; e.IsProxied = false; })
+    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5202")
+    .WithReference(platform)
+    .WithReference(auth)
+    .WithEnvironment("Platform__BaseUrl", "http://localhost:5121")
+    .WithEnvironment("Auth__BaseUrl", "http://localhost:5122");
+
+var sample2 = builder.AddProject<Projects.Sample2_Api>("sample2")
+    .WithEndpoint("http", e => { e.Port = 5203; e.IsProxied = false; })
+    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5203")
+    .WithReference(platform)
+    .WithReference(auth)
+    .WithEnvironment("Platform__BaseUrl", "http://localhost:5121")
+    .WithEnvironment("Auth__BaseUrl", "http://localhost:5122");
+
 var shell = builder.AddNpmApp("shell", "../../../apps/shell", "dev")
     .WithEndpoint("http", e => { e.Port = 5173; e.IsProxied = false; })
     .WithExternalHttpEndpoints()
@@ -61,6 +80,15 @@ var shell = builder.AddNpmApp("shell", "../../../apps/shell", "dev")
 
 var loyaltyWeb = builder.AddNpmApp("loyalty-web", "../../../modules/loyalty/web", "dev")
     .WithEndpoint("http", e => { e.Port = 5174; e.IsProxied = false; })
+    .WithExternalHttpEndpoints();
+
+// Federation remotes must be built (vite preview) — remoteEntry.js is not served by `vite dev`.
+var sample1Web = builder.AddNpmApp("sample1-web", "../../../modules/sample1/web", "serve")
+    .WithEndpoint("http", e => { e.Port = 5176; e.IsProxied = false; })
+    .WithExternalHttpEndpoints();
+
+var sample2Web = builder.AddNpmApp("sample2-web", "../../../modules/sample2/web", "serve")
+    .WithEndpoint("http", e => { e.Port = 5177; e.IsProxied = false; })
     .WithExternalHttpEndpoints();
 
 var tenantAdmin = builder.AddNpmApp("tenant-admin", "../../../apps/tenant-admin", "dev")

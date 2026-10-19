@@ -2,10 +2,16 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Gateway.Api.Models;
+using Ocelot.Configuration.Creator;
+using Ocelot.Configuration.File;
+using Ocelot.Configuration.Repository;
 
 namespace Gateway.Api.Services;
 
-// File-backed store: single writer, atomic temp+move, hot-apply notes in README.
+// File-backed store: single writer, atomic temp+move, true hot-apply (SR-3):
+// every successful write is validated + swapped into the running route table
+// via Ocelot's IInternalConfigurationCreator + IInternalConfigurationRepository
+// (no restart, no file-poll latency).
 public sealed class GatewayStore : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -14,12 +20,17 @@ public sealed class GatewayStore : IDisposable
     private readonly string _modulesPath;
     private readonly IHostEnvironment _env;
     private readonly ILogger<GatewayStore> _log;
+    private readonly IInternalConfigurationCreator _creator;
+    private readonly IInternalConfigurationRepository _repo;
     private readonly ConcurrentDictionary<string, ModuleState> _modules = new(StringComparer.OrdinalIgnoreCase);
 
-    public GatewayStore(IHostEnvironment env, ILogger<GatewayStore> log)
+    public GatewayStore(IHostEnvironment env, ILogger<GatewayStore> log,
+        IInternalConfigurationCreator creator, IInternalConfigurationRepository repo)
     {
         _env = env;
         _log = log;
+        _creator = creator;
+        _repo = repo;
         _ocelotPath = Path.Combine(env.ContentRootPath, "ocelot.json");
         _servicesPath = Path.Combine(env.ContentRootPath, "gateway-services.json");
         _modulesPath = Path.Combine(env.ContentRootPath, "gateway-modules.json");
@@ -77,6 +88,23 @@ public sealed class GatewayStore : IDisposable
             0L,
             _ocelotPath,
             false);
+    }
+
+    // SR-3 hot apply: validate the candidate config with Ocelot's own creator,
+    // persist atomically, then swap the running route table. Any validation
+    // failure leaves both the file and the running config untouched (BR-R6).
+    private async Task<(bool Ok, string? Error)> ValidatePersistSwapAsync(string source, JsonNode ocelot)
+    {
+        FileConfiguration candidate;
+        try { candidate = ocelot.Deserialize<FileConfiguration>() ?? throw new InvalidOperationException("empty config"); }
+        catch (Exception ex) { return (false, $"Invalid Ocelot config JSON: {ex.Message}"); }
+        var created = await _creator.Create(candidate);
+        if (created.IsError)
+            return (false, string.Join("; ", created.Errors.Select(e => e.Message)));
+        await WriteJsonAsync(_ocelotPath, ocelot);
+        _repo.AddOrReplace(created.Data);
+        _log.LogInformation("gateway config applied source={source} routes={routes}", source, created.Data.Routes.Length);
+        return (true, null);
     }
 
     public async Task<(bool Ok, object? Value, string? Error, string? ErrorCode)> AddServiceAsync(ServiceUpsert req)
@@ -143,7 +171,8 @@ public sealed class GatewayStore : IDisposable
                 Priority = req.Priority,
                 Metadata = new Dictionary<string, string> { ["serviceId"] = req.ServiceId, ["source"] = "admin-ui" },
             })));
-            await WriteJsonAsync(_ocelotPath, ocelot);
+            var (ok, err) = await ValidatePersistSwapAsync("admin-ui", ocelot);
+            if (!ok) return (false, null, err, "CONFIG_INVALID");
             _log.LogInformation("gateway route added {id} {upstream}", id, req.UpstreamPathTemplate);
             return (true, new { id }, null, null);
         }
@@ -162,15 +191,46 @@ public sealed class GatewayStore : IDisposable
             if (routes.Count == 1 && !force)
                 return (false, null, "Refusing to delete the last route without force=true.", "LAST_ROUTE");
             routes.Remove(node);
-            await WriteJsonAsync(_ocelotPath, ocelot);
+            var (ok, err) = await ValidatePersistSwapAsync("admin-ui", ocelot);
+            if (!ok) return (false, null, err, "CONFIG_INVALID");
             return (true, new { id }, null, null);
         }
         finally { _gate.Release(); }
     }
 
-    public Task ReloadAsync() => Task.CompletedTask; // reloadOnChange:true picks up manual edits; hot-swap documented in README.
+    // Reload: re-read ocelot.json, validate, swap (SR-7). Manual edits are
+    // picked up without a restart; invalid files are rejected, running config
+    // untouched.
+    public async Task<(bool Ok, string? Error)> ReloadAsync()
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            var ocelot = JsonNode.Parse(await File.ReadAllTextAsync(_ocelotPath))!.AsObject();
+            var (ok, err) = await ValidatePersistSwapAsync("reload", ocelot);
+            return (ok, err);
+        }
+        catch (Exception ex) { return (false, ex.Message); }
+        finally { _gate.Release(); }
+    }
 
-    public async Task<(bool Ok, int Value, string? Error)> ApplyModuleRoutesAsync(string moduleId, List<ModuleUpstream> upstreams, bool enabled, bool remove = false)
+    // Downstream target for module routes (A3 fix — no more hardcoded
+    // localhost:5200): explicit baseUrl from the platform (module artifact URL)
+    // wins, else a registered service with id == moduleId, else the
+    // ModuleRoutes:DefaultBaseUrl config, else localhost:5200 (dev fallback).
+    private (string Scheme, string Host, int Port) ResolveModuleDownstream(string moduleId, string? baseUrl, JsonNode services)
+    {
+        if (!string.IsNullOrWhiteSpace(baseUrl) && Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+            return (uri.Scheme, uri.Host, uri.IsDefaultPort ? (uri.Scheme == "https" ? 443 : 80) : uri.Port);
+        var svc = services["services"]?.AsArray().FirstOrDefault(n => n?["id"]?.GetValue<string>() == moduleId);
+        if (svc is not null)
+            return (svc["scheme"]?.GetValue<string>() ?? "http", svc["host"]!.GetValue<string>(), svc["port"]!.GetValue<int>());
+        var fallback = Environment.GetEnvironmentVariable("GATEWAY_MODULE_DEFAULT_BASEURL") ?? "http://localhost:5200";
+        var f = Uri.TryCreate(fallback, UriKind.Absolute, out var fu) ? fu : new Uri("http://localhost:5200");
+        return (f.Scheme, f.Host, f.IsDefaultPort ? 80 : f.Port);
+    }
+
+    public async Task<(bool Ok, int Value, string? Error)> ApplyModuleRoutesAsync(string moduleId, List<ModuleUpstream> upstreams, bool enabled, bool remove = false, string? baseUrl = null)
     {
         if (remove) _modules.TryRemove(moduleId, out _);
         else _modules[moduleId] = enabled ? ModuleState.Enabled : ModuleState.Disabled;
@@ -184,6 +244,7 @@ public sealed class GatewayStore : IDisposable
                 routes.Remove(old);
             if (enabled)
             {
+                var (scheme, host, port) = ResolveModuleDownstream(moduleId, baseUrl, ReadServices());
                 foreach (var u in upstreams)
                 {
                     routes.Add(JsonNode.Parse(JsonSerializer.Serialize(new
@@ -192,14 +253,15 @@ public sealed class GatewayStore : IDisposable
                         UpstreamPathTemplate = u.Upstream,
                         UpstreamHttpMethod = u.Methods,
                         DownstreamPathTemplate = u.Downstream,
-                        DownstreamScheme = "http",
-                        DownstreamHostAndPorts = new[] { new { Host = "localhost", Port = 5200 } },
+                        DownstreamScheme = scheme,
+                        DownstreamHostAndPorts = new[] { new { Host = host, Port = port } },
                         Priority = 10,
                         Metadata = new Dictionary<string, string> { ["serviceId"] = moduleId, ["source"] = "module-install", ["managedBy"] = $"module:{moduleId}" },
                     })));
                 }
             }
-            await WriteJsonAsync(_ocelotPath, ocelot);
+            var (ok, err) = await ValidatePersistSwapAsync("module-install", ocelot);
+            if (!ok) return (false, 0, err);
             await PersistModuleStatesAsync();
             return (true, upstreams.Count, null);
         }
@@ -313,7 +375,8 @@ public sealed class GatewayStore : IDisposable
             node["DownstreamScheme"] = svc["scheme"]!.GetValue<string>();
             node["DownstreamHostAndPorts"] = new JsonArray(
                 new JsonObject { ["Host"] = svc["host"]!.GetValue<string>(), ["Port"] = svc["port"]!.GetValue<int>() });
-            await WriteJsonAsync(_ocelotPath, ocelot);
+            var (ok, err) = await ValidatePersistSwapAsync("admin-ui", ocelot);
+            if (!ok) return (false, null, err, "CONFIG_INVALID");
             _log.LogInformation("gateway route updated {id}", id);
             return (true, new { id }, null, null);
         }

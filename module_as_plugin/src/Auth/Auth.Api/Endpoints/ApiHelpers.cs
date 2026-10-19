@@ -1,3 +1,4 @@
+using Auth.Api.Infrastructure;
 using Microsoft.Extensions.Caching.Memory;
 using SharedKernel;
 
@@ -5,6 +6,18 @@ namespace Auth.Api.Endpoints;
 
 public static class ApiHelpers
 {
+    // Bump the tenant's permission-version so cached resolve results for this
+    // tenant become unreachable (A-BR5 invalidation on admin grant changes).
+    // Tenant comes from the JWT claim (tenant login) or X-Tenant-Id header
+    // (bootstrap/platform path) — same resolution the store provider uses.
+    public static void BumpPermissions(HttpContext ctx, PermissionVersionCache versions)
+    {
+        var tenantId = ctx.User.FindFirst("tenantId")?.Value
+            ?? ctx.Request.Headers["X-Tenant-Id"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tenantId))
+            versions.Bump(tenantId);
+    }
+
     // Tenant usability via Platform's cluster-internal status endpoint.
     // Cached 30s. Fail closed: unknown → 404, disabled → 403, platform
     // unreachable → 503 (retryable). No fail-open.

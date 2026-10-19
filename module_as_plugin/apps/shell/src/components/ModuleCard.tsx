@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpToLine, Download, MoreVertical, Pause, Play, Trash2 } from 'lucide-react';
+import { ArrowUpToLine, Download, MoreVertical, Pause, Play, RotateCw, Trash2 } from 'lucide-react';
 import { api } from '../lib/api-client';
 import type { CatalogItem } from '../lib/bootstrap';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,19 @@ interface ModuleDetail {
 
 // One module card: status badge + lifecycle actions in a row menu.
 // Install ⇄ enable/disable → uninstall, upgrade via dialog. (§6, §8)
-export function ModuleCard({ module, tenantId, onChanged }: { module: CatalogItem; tenantId: string | null; onChanged: () => void }) {
+export function ModuleCard({
+  module,
+  tenantId,
+  onChanged,
+  versions,
+  readOnly = false,
+}: {
+  module: CatalogItem;
+  tenantId: string | null;
+  onChanged: () => void;
+  versions?: string[];
+  readOnly?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -65,15 +77,23 @@ export function ModuleCard({ module, tenantId, onChanged }: { module: CatalogIte
       onChanged();
       queryClient.invalidateQueries({ queryKey: ['module-detail', module.id] });
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      const code = (e as Error & { code?: string }).code;
+      setError(code ? `${code}: ${e.message}` : e.message);
+    },
   });
 
   const busy = mutate.isPending;
   const state = module.installState.toUpperCase();
   const installed = state === 'INSTALLED';
   const disabled = state === 'DISABLED';
-  const canAct = Boolean(tenantId || platformTid);
-  const upgradeOptions = (detail.data?.versions ?? []).filter((v) => v !== detail.data?.installedVersion);
+  const failed = state === 'FAILED';
+  const canAct = Boolean(tenantId || platformTid) && !readOnly;
+  const installedVersion = detail.data?.installedVersion ?? module.installedVersion ?? null;
+  // Versions are newest first: anything before the installed one is an upgrade.
+  const allVersions = detail.data?.versions ?? versions ?? module.versions ?? [];
+  const installedIdx = installedVersion ? allVersions.indexOf(installedVersion) : -1;
+  const upgradeOptions = installedIdx >= 0 ? allVersions.slice(0, installedIdx) : allVersions.filter((v) => v !== installedVersion);
 
   const run = (path: string, method: string, body?: unknown) => mutate.mutate({ path, method, body });
 
@@ -103,67 +123,81 @@ export function ModuleCard({ module, tenantId, onChanged }: { module: CatalogIte
             )}
           </p>
         )}
-        {detail.data?.installedVersion && (
+        {installedVersion && (
           <p className="text-muted-foreground">
-            Installed version: <Badge variant="secondary">{detail.data.installedVersion}</Badge>
+            Installed version: <Badge variant="secondary">{installedVersion}</Badge>
           </p>
         )}
+        {failed && module.error && <p className="text-destructive">Last error: {module.error}</p>}
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
       </CardContent>
-      <CardFooter className="gap-2">
-        {state === 'NOT_INSTALLED' && (
-          <Button size="sm" disabled={busy || !canAct} onClick={() => run(`${base}/${module.id}/install`, 'POST')}>
-            <Download className="h-4 w-4" aria-hidden />
-            Install
-          </Button>
-        )}
-        {disabled && (
-          <Button size="sm" disabled={busy} onClick={() => run(`${base}/${module.id}/enable`, 'POST')}>
-            <Play className="h-4 w-4" aria-hidden />
-            Enable
-          </Button>
-        )}
-        {installed && (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => run(`${base}/${module.id}/disable`, 'POST')}>
-            <Pause className="h-4 w-4" aria-hidden />
-            Disable
-          </Button>
-        )}
-        {(installed || disabled) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" aria-label={`More actions for ${module.displayName}`}>
-                <MoreVertical className="h-4 w-4" aria-hidden />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                disabled={busy || upgradeOptions.length === 0}
-                onSelect={() => {
-                  setTargetVersion('');
-                  setUpgradeOpen(true);
-                }}
-              >
-                <ArrowUpToLine className="h-4 w-4" aria-hidden />
-                Upgrade…
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={busy}
-                className="text-destructive focus:text-destructive"
-                onSelect={() => setUninstallOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden />
-                Uninstall
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </CardFooter>
+      {canAct && (
+        <CardFooter className="gap-2">
+          {state === 'NOT_INSTALLED' && (
+            <Button size="sm" disabled={busy} onClick={() => run(`${base}/${module.id}/install`, 'POST')}>
+              <Download className="h-4 w-4" aria-hidden />
+              Install
+            </Button>
+          )}
+          {failed && (
+            <Button size="sm" disabled={busy} onClick={() => run(`${base}/${module.id}/install`, 'POST')}>
+              <RotateCw className="h-4 w-4" aria-hidden />
+              Retry install
+            </Button>
+          )}
+          {disabled && (
+            <Button size="sm" disabled={busy} onClick={() => run(`${base}/${module.id}/enable`, 'POST')}>
+              <Play className="h-4 w-4" aria-hidden />
+              Enable
+            </Button>
+          )}
+          {installed && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => run(`${base}/${module.id}/disable`, 'POST', { reason: 'Disabled from catalog' })}
+            >
+              <Pause className="h-4 w-4" aria-hidden />
+              Disable
+            </Button>
+          )}
+          {(installed || disabled) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" aria-label={`More actions for ${module.displayName}`}>
+                  <MoreVertical className="h-4 w-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={busy || upgradeOptions.length === 0}
+                  onSelect={() => {
+                    setTargetVersion('');
+                    setUpgradeOpen(true);
+                  }}
+                >
+                  <ArrowUpToLine className="h-4 w-4" aria-hidden />
+                  Upgrade…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={busy}
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => setUninstallOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                  Uninstall
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </CardFooter>
+      )}
 
       <AlertDialog open={uninstallOpen} onOpenChange={setUninstallOpen}>
         <AlertDialogContent>
@@ -196,8 +230,8 @@ export function ModuleCard({ module, tenantId, onChanged }: { module: CatalogIte
           <DialogHeader>
             <DialogTitle>Upgrade {module.displayName}</DialogTitle>
             <DialogDescription>
-              {detail.data?.installedVersion
-                ? `Currently at ${detail.data.installedVersion}. Only newer versions are accepted.`
+              {installedVersion
+                ? `Currently at ${installedVersion}. Only newer versions are accepted.`
                 : 'Choose a version to upgrade to.'}
             </DialogDescription>
           </DialogHeader>

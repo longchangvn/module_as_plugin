@@ -2,6 +2,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY ModulePlatform.sln ./
+COPY src/Aspire/ModulePlatform.ServiceDefaults/ModulePlatform.ServiceDefaults.csproj src/Aspire/ModulePlatform.ServiceDefaults/
 COPY src/Shared/SharedKernel/*.csproj src/Shared/SharedKernel/
 COPY src/Auth/Auth.Api/*.csproj src/Auth/Auth.Api/
 RUN dotnet restore src/Auth/Auth.Api/Auth.Api.csproj

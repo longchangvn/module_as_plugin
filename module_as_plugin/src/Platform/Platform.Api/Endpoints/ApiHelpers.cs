@@ -11,7 +11,9 @@ public static class ApiHelpers
     public static string RequireRole(HttpContext ctx) =>
         ctx.User.FindFirst("platform_role")?.Value ?? "";
     public static string ActorId(HttpContext ctx) =>
-        ctx.User.FindFirst("sub")?.Value ?? "unknown";
+        ctx.User.FindFirst("sub")?.Value
+        ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? "unknown";
 
     public static bool CanWrite(HttpContext ctx, string tid)
     {
@@ -50,7 +52,8 @@ public static class ApiHelpers
 
     public static async Task<IResult?> DuplicateTenantFieldAsync(
         CatalogDbContext db, string? excludeId, string name, string slug, string? domain, string? pathPrefix,
-        string? deploymentMode = null, string? dbName = null, string? schema = null, string? pathBase = null)
+        string? deploymentMode = null, string? dbName = null, string? schema = null, string? pathBase = null,
+        bool hasCustomConnection = false)
     {
         var lowerName = name.Trim().ToLower();
         if (await db.Tenants.AnyAsync(t => t.Id != excludeId && t.Name.ToLower() == lowerName))
@@ -67,20 +70,60 @@ public static class ApiHelpers
         var prefix = string.IsNullOrWhiteSpace(pathPrefix) ? TenantValidator.DefaultPathPrefix(slug, pathBase) : pathPrefix.Trim();
         if (await db.Tenants.AnyAsync(t => t.Id != excludeId && t.PathPrefix == prefix))
             return ApiErrors.Problem(ErrorCodes.DuplicateTenant, "Path prefix is already used by another tenant.", 409, new { field = "pathPrefix" });
-        // BR-T1: dbName unique among DEDICATED_DB tenants; schema unique when set.
-        if ((deploymentMode ?? "dedicated") == "dedicated" && !string.IsNullOrWhiteSpace(dbName))
+        // BR-T1: dbName unique among DEDICATED_DB tenants (skipped for custom
+        // connections — scoped per server, checked by CheckCustomConnectionAsync);
+        // schema unique when set (likewise scoped for custom tenants).
+        if (!hasCustomConnection && (deploymentMode ?? "dedicated") == "dedicated" && !string.IsNullOrWhiteSpace(dbName))
         {
             var lowerDb = dbName.Trim().ToLower();
             if (await db.Tenants.AnyAsync(t => t.Id != excludeId && t.DeploymentMode == "dedicated" && t.DbName.ToLower() == lowerDb))
                 return ApiErrors.Problem(ErrorCodes.DuplicateTenant, "Database name is already used by another tenant.", 409, new { field = "dbName" });
         }
-        if (!string.IsNullOrWhiteSpace(schema) && schema.Trim() != "public")
+        if (!hasCustomConnection && !string.IsNullOrWhiteSpace(schema) && schema.Trim() != "public")
         {
             var s = schema.Trim();
             if (await db.Tenants.AnyAsync(t => t.Id != excludeId && t.Schema == s))
                 return ApiErrors.Problem(ErrorCodes.DuplicateTenant, "Schema is already used by another tenant.", 409, new { field = "schema" });
         }
         return null;
+    }
+
+    // BR-T1 for custom-connection tenants: the (server, database, schema)
+    // tuple must be unique. Cross-server duplicates are rejected too (safe
+    // direction — per-server tracking would need stored host/port).
+    public static async Task<IResult?> CheckCustomConnectionAsync(
+        CatalogDbContext db, IConfiguration cfg, string? excludeId,
+        string dbName, string schema, string customHost, int customPort)
+    {
+        var lowerDb = dbName.Trim().ToLower();
+        var s = schema.Trim();
+        if (await db.Tenants.AnyAsync(t => t.Id != excludeId && t.DbConnectionEncrypted != null
+            && t.DbName.ToLower() == lowerDb && t.Schema == s))
+            return ApiErrors.Problem(ErrorCodes.DuplicateTenant, "Database and schema are already used by another custom-connection tenant.", 409, new { field = "dbName" });
+        // Same-server ownership: a default dedicated tenant owns its whole DB.
+        var (defHost, defPort) = DefaultServer(cfg);
+        if (defHost is not null && defPort.HasValue
+            && string.Equals(defHost, customHost, StringComparison.OrdinalIgnoreCase) && defPort == customPort
+            && await db.Tenants.AnyAsync(t => t.Id != excludeId && t.DbConnectionEncrypted == null
+                && t.DeploymentMode == "dedicated" && t.DbName.ToLower() == lowerDb))
+            return ApiErrors.Problem(ErrorCodes.DuplicateTenant, "Database name is already used by another tenant on this server.", 409, new { field = "dbName" });
+        return null;
+    }
+
+    private static (string? Host, int? Port) DefaultServer(IConfiguration cfg)
+    {
+        var host = cfg["TenantStores:Host"];
+        if (!string.IsNullOrWhiteSpace(host))
+            return (host.Trim(), int.TryParse(cfg["TenantStores:Port"], out var p) ? p : 5432);
+        try
+        {
+            var csb = new Npgsql.NpgsqlConnectionStringBuilder(cfg.GetConnectionString("Catalog"));
+            return (csb.Host, csb.Port);
+        }
+        catch
+        {
+            return (null, null);
+        }
     }
 
     // Physical store provisioning: CREATE DATABASE (dedicated, idempotent when
@@ -108,6 +151,35 @@ public static class ApiHelpers
             await using var create = new Npgsql.NpgsqlCommand($"CREATE DATABASE {QuoteIdent(tenant.DbName)}", admin);
             await create.ExecuteNonQueryAsync();
         }
+    }
+
+    // Custom-connection provisioning: tables live under the tenant schema in
+    // the tenant's own database. Dial the custom string as-is (database
+    // exists); on 3D000 create the database via the maintenance database
+    // first, then the schema. Never logs the connection string.
+    public static async Task ProvisionCustomTenantStoreAsync(string customConn, string dbName, string schema)
+    {
+        try
+        {
+            await using var conn = new Npgsql.NpgsqlConnection(customConn);
+            await conn.OpenAsync();
+            await using var cmd = new Npgsql.NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS {QuoteIdent(schema)}", conn);
+            await cmd.ExecuteNonQueryAsync();
+            return;
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == "3D000")
+        {
+            // Database does not exist yet — create it below.
+        }
+        var sb = new Npgsql.NpgsqlConnectionStringBuilder(customConn) { Database = "postgres" };
+        await using var admin = new Npgsql.NpgsqlConnection(sb.ToString());
+        await admin.OpenAsync();
+        await using var create = new Npgsql.NpgsqlCommand($"CREATE DATABASE {QuoteIdent(dbName)}", admin);
+        await create.ExecuteNonQueryAsync();
+        await using var target = new Npgsql.NpgsqlConnection(customConn);
+        await target.OpenAsync();
+        await using var schemaCmd = new Npgsql.NpgsqlCommand($"CREATE SCHEMA IF NOT EXISTS {QuoteIdent(schema)}", target);
+        await schemaCmd.ExecuteNonQueryAsync();
     }
 
     public static string QuoteIdent(string ident) => "\"" + ident.Replace("\"", "\"\"") + "\"";

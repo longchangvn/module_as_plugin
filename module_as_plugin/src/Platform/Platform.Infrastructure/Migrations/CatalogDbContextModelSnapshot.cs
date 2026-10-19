@@ -197,6 +197,9 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DbConnectionEncrypted")
+                        .HasColumnType("text");
+
                     b.Property<string>("DbError")
                         .HasColumnType("text");
 

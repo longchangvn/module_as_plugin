@@ -220,4 +220,39 @@ public sealed class TenantResolutionTests
         var c = TenantResolution.Candidates(null, "loyalty.com", "/api/v1/platform/tenants");
         Assert.DoesNotContain(c, x => x.Source == TenantResolutionSource.Path);
     }
+
+    [Fact]
+    public void Valid_connection_string_passes()
+    {
+        Assert.Null(TenantValidator.ValidateDbConnectionString(
+            "Host=db.internal;Port=5433;Username=app;Password=s3cret;Database=tenant_acme"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not-a-connection-string")]
+    [InlineData("Host=db.internal")] // missing Database
+    [InlineData("Database=tenant_acme")] // missing Host
+    [InlineData("Host=;Database=tenant_acme")] // blank Host
+    public void Bad_connection_string_rejected(string? value)
+    {
+        Assert.NotNull(TenantValidator.ValidateDbConnectionString(value));
+    }
+
+    [Fact]
+    public void Connection_string_keys_are_case_insensitive_and_quoted_values_ok()
+    {
+        Assert.Null(TenantValidator.ValidateDbConnectionString(
+            "host=db.internal;database=\"tenant_acme\";username=app;password='p;ss'"));
+    }
+
+    [Theory]
+    [InlineData("acme", "acme")]
+    [InlineData("Acme-Retail", "acme_retail")]
+    [InlineData("9lives", "_9lives")]
+    public void Schema_slug_sanitized(string slug, string expected)
+    {
+        Assert.Equal(expected, TenantValidator.SanitizeSchemaSlug(slug));
+    }
 }

@@ -4,6 +4,7 @@
 // Endpoint mappings live in Endpoints/ (AdminEndpoints, HealthEndpoints);
 // services in Services/, middleware in Middleware/, contracts in Models/.
 using System.Text;
+using System.Threading.RateLimiting;
 using Gateway.Api.Endpoints;
 using Gateway.Api.Middleware;
 using Gateway.Api.Models;
@@ -23,7 +24,7 @@ builder.Services.AddOcelot(builder.Configuration);
 builder.Services.AddSingleton<GatewayStore>();
 builder.Services.AddSingleton<TrafficRecorder>();
 
-var jwtSecret = builder.Configuration["Jwt:SecretKey"] ?? "dev-only-secret-key-min-32-chars!!";
+var jwtSecret = builder.RequireSecret("Jwt:SecretKey", Extensions.DevJwtSecret);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
     o.TokenValidationParameters = new TokenValidationParameters
@@ -37,12 +38,36 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("GatewayViewer", p => p.RequireAuthenticatedUser())
     .AddPolicy("GatewayAdmin", p => p.RequireClaim("platform_role", "Admin"));
 
+// Credential throttling (FR-A5): fixed window per client IP on login /
+// change-password only; everything else is unlimited. Done here because the
+// gateway is the only hop that sees the real client address (G-BR3).
+var credentialPermits = builder.Configuration.GetValue("RateLimiting:CredentialPermitPerMinute", 10);
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        GatewayHelpers.IsCredentialRequest(ctx.Request)
+            ? RateLimitPartition.GetFixedWindowLimiter(
+                $"cred:{ctx.Connection.RemoteIpAddress}",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = credentialPermits, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })
+            : RateLimitPartition.GetNoLimiter("none"));
+    o.OnRejected = async (c, ct) =>
+    {
+        c.HttpContext.Response.Headers.RetryAfter = "60";
+        await c.HttpContext.Response.WriteAsJsonAsync(new { error = new
+        {
+            code = "RATE_LIMITED", message = "Too many attempts. Try again later.", details = new { retryAfterSeconds = 60 },
+        } }, ct);
+    };
+});
+
 var app = builder.Build();
 app.MapDefaultEndpoints();
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseMiddleware<TrafficMiddleware>();
+app.UseRateLimiter();
 
 AdminEndpoints.Map(app);
 

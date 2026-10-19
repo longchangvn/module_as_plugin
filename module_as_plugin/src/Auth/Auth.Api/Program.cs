@@ -14,7 +14,8 @@ builder.AddServiceDefaults();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var jwtSecret = builder.Configuration["Jwt:SecretKey"] ?? "dev-only-secret-key-min-32-chars!!";
+var jwtSecret = builder.RequireSecret("Jwt:SecretKey", Extensions.DevJwtSecret);
+builder.RequireSecret("InternalApi:Key", Extensions.DevInternalKey);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
     o.TokenValidationParameters = new TokenValidationParameters
@@ -27,6 +28,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization();
 
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<PermissionVersionCache>();
 builder.Services.AddHttpClient("platform", c => c.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<Auth.Api.Infrastructure.TenantDbProvider>();
 
@@ -53,6 +55,7 @@ using (var scope = app.Services.CreateScope())
 
 HealthEndpoints.Map(app);
 ResolveEndpoints.Map(app);
+ProfileEndpoints.Map(app);
 UserEndpoints.Map(app);
 RoleEndpoints.Map(app);
 PermissionEndpoints.Map(app);

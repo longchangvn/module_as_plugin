@@ -22,7 +22,7 @@ public sealed class TenantDbProvider(
     private static readonly ConcurrentDictionary<string, bool> Migrated = new();
     private static readonly ConcurrentDictionary<string, DbContextOptions<TenantDbContext>> OptionsCache = new();
 
-    public sealed record StoreMeta(string Status, string Mode, string DbName, string Schema, string? BootstrapAdminEmail, string? BootstrapAdminName);
+    public sealed record StoreMeta(string Status, string Mode, string DbName, string Schema, bool HasCustomConnection, string? BootstrapAdminEmail, string? BootstrapAdminName);
 
     public Task<TenantDbContext> ForRequestAsync(HttpContext ctx, TenantDbContext legacy)
     {
@@ -41,8 +41,17 @@ public sealed class TenantDbProvider(
         // shared store; unknown-tenant rejection happens in the caller guard.
         if (meta is null || (meta.Mode != "dedicated" && meta.Mode != "shared"))
             return legacy;
-        var options = OptionsCache.GetOrAdd(tenantId, _ => BuildOptions(meta));
-        var db = new TenantDbContext(options, meta.Mode == "shared" ? meta.Schema : null);
+        // Custom-connection dedicated tenants resolve their secret (server-to-
+        // server, memory-cached, never logged) and use it as the connection base.
+        string? secret = null;
+        if (meta is { Mode: "dedicated", HasCustomConnection: true })
+        {
+            secret = await GetConnectionSecretAsync(tenantId);
+            if (secret is null)
+                throw new InvalidOperationException("Tenant store provisioning failed: custom connection unavailable.");
+        }
+        var options = OptionsCache.GetOrAdd(tenantId, _ => BuildOptions(meta, secret));
+        var db = new TenantDbContext(options, (meta.Mode == "shared" || secret is not null) ? meta.Schema : null);
         if (Migrated.ContainsKey(tenantId))
             return db;
         var sem = Locks.GetOrAdd(tenantId, _ => new SemaphoreSlim(1, 1));
@@ -55,8 +64,8 @@ public sealed class TenantDbProvider(
                 {
                     await db.Database.MigrateAsync();
                     // Bootstrap admin: first tenant user, seeded once when the
-                    // creator supplied an email (passwords are stub-verified
-                    // in v1, so any password logs in).
+                    // creator supplied an email (no password: claimed on
+                    // first login, see LoginEndpoints policy).
                     if (!string.IsNullOrWhiteSpace(meta.BootstrapAdminEmail) &&
                         !await db.Users.AnyAsync())
                     {
@@ -113,6 +122,7 @@ public sealed class TenantDbProvider(
                 (data.GetProperty("deploymentMode").GetString() ?? "").ToLowerInvariant(),
                 data.GetProperty("dbName").GetString() ?? "",
                 data.GetProperty("schema").GetString() ?? "public",
+                data.TryGetProperty("hasCustomConnection", out var hc) && hc.ValueKind == JsonValueKind.True,
                 data.TryGetProperty("bootstrapAdminEmail", out var be) ? be.GetString() : null,
                 data.TryGetProperty("bootstrapAdminName", out var bn) ? bn.GetString() : null);
             cache.Set(key, meta, TimeSpan.FromMinutes(10)); // identity/shape is immutable
@@ -125,24 +135,76 @@ public sealed class TenantDbProvider(
         }
     }
 
-    private DbContextOptions<TenantDbContext> BuildOptions(StoreMeta meta)
+    // Custom connection secret, decrypted by Platform server-side and handed
+    // over the cluster-internal endpoint (X-Internal-Key). Memory-cached with
+    // the metadata TTL; never logged, never persisted here.
+    private async Task<string?> GetConnectionSecretAsync(string tenantId)
     {
-        var csb = new Npgsql.NpgsqlConnectionStringBuilder
+        var key = $"tenant-secret:{tenantId}";
+        if (cache.TryGetValue<string>(key, out var cached) && !string.IsNullOrWhiteSpace(cached))
+            return cached;
+        var internalKey = cfg["InternalApi:Key"];
+        if (string.IsNullOrWhiteSpace(internalKey))
         {
-            Host = cfg["TenantStores:Host"],
-            Port = int.TryParse(cfg["TenantStores:Port"], out var p) ? p : 5432,
-            Username = cfg["TenantStores:Username"],
-            Password = cfg["TenantStores:Password"],
-            Database = meta.Mode == "shared" ? cfg["TenantStores:SharedDatabase"] : meta.DbName,
-        };
+            log.LogWarning("InternalApi:Key not configured; custom connection for {tenant} unavailable", tenantId);
+            return null;
+        }
+        try
+        {
+            var baseUrl = (cfg["Platform:BaseUrl"] ?? "http://localhost:5121").TrimEnd('/');
+            using var client = http.CreateClient("platform");
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                $"{baseUrl}/internal/tenants/{Uri.EscapeDataString(tenantId)}/connection");
+            req.Headers.Add("X-Internal-Key", internalKey);
+            using var res = await client.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                log.LogWarning("Custom connection unavailable for {tenant}: {status}", tenantId, (int)res.StatusCode);
+                return null;
+            }
+            using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
+            var secret = doc.RootElement.GetProperty("data").GetProperty("connectionString").GetString();
+            if (string.IsNullOrWhiteSpace(secret))
+                return null;
+            cache.Set(key, secret, TimeSpan.FromMinutes(10));
+            return secret;
+        }
+        catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+        {
+            log.LogWarning("Custom connection fetch failed for {tenant}: {error}", tenantId, ex.Message);
+            return null;
+        }
+    }
+
+    private DbContextOptions<TenantDbContext> BuildOptions(StoreMeta meta, string? customConnection)
+    {
+        Npgsql.NpgsqlConnectionStringBuilder csb;
+        if (customConnection is not null)
+        {
+            // Tenant's own database is honored as-is (Database from the custom
+            // string); tables live under the tenant schema below.
+            csb = new Npgsql.NpgsqlConnectionStringBuilder(customConnection);
+        }
+        else
+        {
+            csb = new Npgsql.NpgsqlConnectionStringBuilder
+            {
+                Host = cfg["TenantStores:Host"],
+                Port = int.TryParse(cfg["TenantStores:Port"], out var p) ? p : 5432,
+                Username = cfg["TenantStores:Username"],
+                Password = cfg["TenantStores:Password"],
+                Database = meta.Mode == "shared" ? cfg["TenantStores:SharedDatabase"] : meta.DbName,
+            };
+        }
+        var schemaQualified = meta.Mode == "shared" || customConnection is not null;
         // Belt-and-braces with the stamping generator: unqualified DDL lands
         // in the tenant schema via search_path (indexes always follow their
         // table's schema, regardless of generator dispatch).
-        if (meta.Mode == "shared")
+        if (schemaQualified)
             csb.SearchPath = meta.Schema;
         var builder = new DbContextOptionsBuilder<TenantDbContext>()
             .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, TenantModelCacheKeyFactory>();
-        if (meta.Mode == "shared")
+        if (schemaQualified)
         {
             ((Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsBuilderInfrastructure)builder)
                 .AddOrUpdateExtension(new TenantSchemaOptionsExtension(meta.Schema));

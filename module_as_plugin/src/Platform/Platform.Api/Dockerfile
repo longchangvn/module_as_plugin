@@ -2,6 +2,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY ModulePlatform.sln ./
+COPY src/Aspire/ModulePlatform.ServiceDefaults/ModulePlatform.ServiceDefaults.csproj src/Aspire/ModulePlatform.ServiceDefaults/
 COPY src/Shared/SharedKernel/*.csproj src/Shared/SharedKernel/
 COPY src/Platform/Platform.Domain/*.csproj src/Platform/Platform.Domain/
 COPY src/Platform/Platform.Application/*.csproj src/Platform/Platform.Application/

@@ -10,6 +10,7 @@ import { CatalogPage } from "../pages/CatalogPage";
 import { TenantsPage } from "../pages/TenantsPage";
 import { GatewayPage } from "../pages/GatewayPage";
 import { LoginPage } from "../pages/LoginPage";
+import { ProfilePage } from "../pages/ProfilePage";
 import { GatewayServicesPage } from "../pages/gateway/ServicesPage";
 import { GatewayRoutesPage } from "../pages/gateway/RoutesPage";
 import { GatewayTrafficPage } from "../pages/gateway/TrafficPage";
@@ -51,6 +52,7 @@ function AuthedApp({ modules, bootstrapError, onRetryBootstrap }: {
         <Route path="/gateway/services" element={<GatewayServicesPage />} />
         <Route path="/gateway/routes" element={<GatewayRoutesPage />} />
         <Route path="/gateway/traffic" element={<GatewayTrafficPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         {modules.flatMap((m) =>
           m.routes.map((r) => (
             <Route

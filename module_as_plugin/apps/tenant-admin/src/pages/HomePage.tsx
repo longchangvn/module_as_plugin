@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { KeyRound, UserCog, Users } from 'lucide-react';
+import { KeyRound, Puzzle, UserCog, Users } from 'lucide-react';
 import { api } from '../lib/api-client';
 import { PageHeader } from '@/components/page-header';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSession } from '../app/session';
+import type { BootstrapModule } from '../lib/bootstrap';
 import type { Permission, Role, TenantUser } from '../lib/types';
 
 interface ResolveResponse {
@@ -15,7 +18,11 @@ interface ResolveResponse {
   version: number;
 }
 
-export function HomePage() {
+function moduleTitle(m: BootstrapModule): string {
+  return m.menus.find((x) => x.parentId === null)?.title ?? m.moduleId;
+}
+
+export function HomePage({ modules = [] }: { modules?: BootstrapModule[] }) {
   const { session } = useSession();
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<TenantUser[]>('/api/v1/admin/users') });
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api<Role[]>('/api/v1/admin/roles') });
@@ -84,6 +91,38 @@ export function HomePage() {
           )}
         </CardContent>
       </Card>
+      <section className="mt-6" aria-labelledby="installed-modules">
+        <h2 id="installed-modules" className="mb-3 text-sm font-semibold tracking-tight">
+          Installed modules
+        </h2>
+        {modules.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No modules installed. Ask a platform admin to install one from the Catalog.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-3">
+            {modules.map((m) => (
+              <Card key={m.moduleId}>
+                <CardHeader className="flex flex-row items-center gap-2 space-y-0 pb-2">
+                  <Puzzle className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  <CardTitle className="text-sm font-medium">{moduleTitle(m)}</CardTitle>
+                  <Badge variant="secondary" className="ml-auto">
+                    v{m.version}
+                  </Badge>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-3 font-mono text-xs text-muted-foreground">{m.moduleId}</p>
+                  {m.routes[0] && (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to={m.routes[0].path}>Open</Link>
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

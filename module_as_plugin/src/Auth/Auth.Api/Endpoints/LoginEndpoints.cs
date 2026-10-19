@@ -31,10 +31,25 @@ public static class LoginEndpoints
         // BR-R4: disabled/unknown tenants cannot log in (fail closed).
         var usability = await ApiHelpers.TenantUsabilityAsync(http, cache, cfg, tenantId);
         if (usability is not null) return usability;
-        // NOTE: password verification is stubbed in v1 (seed users have no hash); production wires Argon2 here.
+        // Password policy (closes the P5 stub-verify gap):
+        //   argon2id$…  → verified.
+        //   sha256:…    → verified for legacy rows, upgraded to Argon2 on success.
+        //   null (bootstrap/seed users, §9.1 v1) → claim-on-first-login: any
+        //     non-empty password is accepted ONCE and stored as Argon2id; every
+        //     later login verifies it.
+        if (string.IsNullOrEmpty(req.Password))
+            return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid credentials.", 401);
+        var (ok, needsRehash) = PasswordHasher.Verify(req.Password, user.PasswordHash);
+        if (!ok)
+        {
+            if (user.PasswordHash is not null)
+                return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid credentials.", 401);
+            needsRehash = true; // claim-on-first-login
+        }
+        if (needsRehash) { user.PasswordHash = PasswordHasher.Hash(req.Password); user.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); }
         var roleIds = await db.UserRoles.Where(ur => ur.UserId == user.Id).Select(ur => ur.RoleId).ToListAsync(ct);
         var roleNames = await db.Roles.Where(r => roleIds.Contains(r.Id)).Select(r => r.Name).ToListAsync(ct);
-        var isAdmin = roleNames.Any(n => n.Contains("Admin", StringComparison.OrdinalIgnoreCase));
+        var isAdmin = roleNames.Any(Auth.Api.Application.LastAdminGuard.IsAdminRoleName);
         var token = JwtMint.Mint(JwtMint.Secret(cfg), new Dictionary<string, string>
         {
             ["sub"] = user.Id, ["email"] = user.Email,

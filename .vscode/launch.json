@@ -44,7 +44,8 @@
         "ASPNETCORE_URLS": "http://localhost:5121",
         "ConnectionStrings__Catalog": "Host=localhost;Port=5433;Username=module_platform;Password=module_platform;Database=module_platform",
         "TenantStores__ProvisioningConnection": "Host=localhost;Port=5433;Username=module_platform;Password=module_platform;Database=postgres",
-        "TenantStores__SharedDatabase": "module_platform"
+        "TenantStores__SharedDatabase": "module_platform",
+        "InternalApi__Key": "dev-internal-key"
       },
       "serverReadyAction": {
         "action": "openExternally",
@@ -74,7 +75,8 @@
         "TenantStores__Port": "5433",
         "TenantStores__Username": "module_platform",
         "TenantStores__Password": "module_platform",
-        "TenantStores__SharedDatabase": "module_platform"
+        "TenantStores__SharedDatabase": "module_platform",
+        "InternalApi__Key": "dev-internal-key"
       },
       "serverReadyAction": {
         "action": "openExternally",

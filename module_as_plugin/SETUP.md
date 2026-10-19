@@ -39,10 +39,17 @@ fast when unset — no InMemory fallback).
 
 ```bash
 cp .env.example .env   # set POSTGRES_PORT=5433 if :5432 is taken
+# compose runs the APIs as Production: set real secrets (>=32 chars) in .env
+#   JWT_SECRET=$(openssl rand -base64 48)
+#   INTERNAL_API_KEY=$(openssl rand -base64 48)
 docker compose up -d postgres
 # or everything containerised:
 docker compose up --build
 ```
+
+Missing/short/dev-default secrets make every non-Development API exit at
+startup with `Required secret '<key>' is missing…` (fail closed). Manual
+`dotnet run` uses the Development launch profile and needs no secrets.
 
 Run APIs against Postgres (one terminal per service, or use compose):
 
@@ -139,7 +146,7 @@ On first `Development` start with an empty catalog, Platform seeds
 
 | row | values |
 | --- | ------ |
-| platform admin | `admin@local` / any password (v1 stub-verify), role `Admin` |
+| platform admin | `admin@local` / any password **on first Development login only** (claimed + stored as Argon2id; Production requires the real password), role `Admin` |
 | demo tenant | id `tnt_demo`, slug `demo`, `tenant_demo` / `public` |
 
 Login to confirm:
@@ -188,6 +195,24 @@ Notes:
 - `deploymentMode` defaults to `dedicated` (`CREATE DATABASE tenant_acme`,
   reused if it exists). For a shared-schema tenant pass
   `"deploymentMode": "shared", "schema": "acme"` instead (creates schema).
+- For a dedicated tenant on its own server, expand "Custom database
+  connection" and paste a connection string (`Host` + `Database` required).
+  Its `Database` is honored, tables go into a slug-derived schema, and the
+  string is stored encrypted (never shown again, immutable). Blank = platform
+  default server:
+
+```bash
+curl -s -X POST localhost:5121/api/v1/platform/tenants \
+  -H "Authorization: Bearer $PLATFORM_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Acme EU",
+    "slug": "acme-eu",
+    "contactEmail": "ops@acme.example",
+    "dbConnectionString": "Host=db.internal;Username=app;Password=secret;Database=tenant_acme_eu"
+  }' | python3 -m json.tool
+# -> 202; tables land in schema acme_eu of tenant_acme_eu
+```
 - `slug` / `name` / `domain` / `pathPrefix` / `dbName` / `schema` must be
   unique — duplicates return `409 DUPLICATE_TENANT`.
 - `pathPrefix` defaults to `{base}/{slug}` (`TenantRouting:PathPrefix`,
@@ -219,7 +244,9 @@ curl -s localhost:5121/api/v1/platform/tenants \
 
 Tenant login accepts the opaque id, slug, or tenant name
 (case-insensitive — the login page takes the name, e.g. `Acme Retail`).
-Any password works in v1 (stub verify); production wires Argon2.
+Any password works on the **first Development login** (claim-on-first-login,
+stored as Argon2id); Production requires the real password and never falls
+back — passwords are verified with Argon2id throughout.
 
 ### 3.4 Publish + install the loyalty module (module seed data)
 
@@ -304,7 +331,35 @@ curl -s -X PATCH localhost:5122/api/v1/admin/users/<userId> \
   -d '{"isActive":false}' | python3 -m json.tool
 ```
 
-### 3.6 Reset / retry
+### 3.6 Sample test modules (install + permission-gated UI)
+
+Start the APIs and remotes (Aspire starts all four automatically):
+
+```bash
+dotnet run --project src/Modules/Sample1/Sample1.Api        # :5202
+dotnet run --project src/Modules/Sample2/Sample2.Api        # :5203
+(cd modules/sample1/web && npm install && npm run serve)    # :5176 build + preview
+(cd modules/sample2/web && npm install && npm run serve)    # :5177
+```
+
+Publish (platform Admin) with the module API as `artifactApiUrl`, then install:
+
+```bash
+for n in 1 2; do
+  curl -s -X POST localhost:5100/api/v1/platform/modules \
+    -H "Authorization: Bearer $PLATFORM_TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"manifestYaml\": $(python3 -c "import json;print(json.dumps(open('modules/sample$n/manifest.yml').read()))"), \"artifactApiUrl\": \"http://localhost:520$((n+1))\"}"
+  curl -s -X POST localhost:5100/api/v1/platform/tenants/$TENANT_ID/modules/sample$n/install \
+    -H "Authorization: Bearer $PLATFORM_TOKEN" -H 'Content-Type: application/json' -d '{}'
+done
+```
+
+Sign in to Tenant Admin (`:5175`): Home → **Installed modules** → open a
+module. "Get protected data" stays disabled until you assign **Sample N
+Viewer** (Users → you → Roles) and reload. Full test matrix:
+`../specs/001-sample-test-modules/quickstart.md`.
+
+### 3.7 Reset / retry
 
 ```bash
 # failed provisioning:

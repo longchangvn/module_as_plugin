@@ -1,6 +1,8 @@
 // Lifecycle state machine + guards — SR-5, R2, R6, R7, R8.
 // Operates on small port interfaces so Infrastructure (EF) can implement persistence
 // and gateway writes without Application depending on EF.
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using SharedKernel;
 using Platform.Domain;
 
@@ -26,6 +28,13 @@ public interface IModuleLifecyclePorts
 }
 
 public sealed record TenantView(string Id, string Status);
+
+// A side-effect port refused the change for a business rule (e.g. LAST_ADMIN);
+// nothing was modified, so callers surface it as 409 instead of a retryable 502.
+public sealed class LifecycleRejectedException(string code, string message) : Exception(message)
+{
+    public string Code { get; } = code;
+}
 
 public static class LifecycleGuards
 {
@@ -55,8 +64,33 @@ public static class LifecycleGuards
 
 public sealed class ModuleLifecycleService(IModuleLifecyclePorts ports)
 {
+    // §18 observability: install/upgrade counters + latency histogram, exported
+    // via the OTel meter pipeline (Aspire dashboard / any OTLP collector).
+    private static readonly Meter Meter = new("ModulePlatform.Lifecycle", "1.0.0");
+    private static readonly Counter<long> Installs = Meter.CreateCounter<long>("module.install.count", description: "Module install attempts by result");
+    private static readonly Counter<long> Upgrades = Meter.CreateCounter<long>("module.upgrade.count", description: "Module upgrade attempts by result");
+    private static readonly Histogram<double> InstallSeconds = Meter.CreateHistogram<double>("module.install.duration", unit: "s", description: "Install pipeline duration");
+
     // SR-5 pipeline (per-tenant lock is enforced by the API layer semaphore, R8).
     public async Task<Result<string>> InstallAsync(string tenantId, string moduleId, string? version,
+        string actorId, string actorRole, CancellationToken ct)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = await InstallCoreAsync(tenantId, moduleId, version, actorId, actorRole, ct);
+        started.Stop();
+        var tags = new TagList
+        {
+            { "module", moduleId }, { "version", result.Value ?? version ?? "unknown" },
+            { "result", result.Ok ? "ok" : (result.Error?.Code ?? "error") },
+        };
+        Installs.Add(1, tags);
+        InstallSeconds.Record(started.Elapsed.TotalSeconds, new TagList { { "module", moduleId }, { "result", result.Ok ? "ok" : "error" } });
+        // §18 structured lifecycle line: module.install tenant=X module=Y version=Z in Ns result=ok
+        Console.WriteLine($"module.install tenant={tenantId} module={moduleId} version={result.Value ?? version ?? "?"} deps=[] in {started.Elapsed.TotalSeconds:F1}s result={(result.Ok ? "ok" : result.Error!.Code)}");
+        return result;
+    }
+
+    private async Task<Result<string>> InstallCoreAsync(string tenantId, string moduleId, string? version,
         string actorId, string actorRole, CancellationToken ct)
     {
         var tenant = await ports.GetTenantAsync(tenantId, ct);
@@ -127,6 +161,17 @@ public sealed class ModuleLifecycleService(IModuleLifecyclePorts ports)
     }
 
     public async Task<Result<string>> UpgradeAsync(string tenantId, string moduleId, string toVersion,
+        string actorId, string actorRole, CancellationToken ct)
+    {
+        var result = await UpgradeCoreAsync(tenantId, moduleId, toVersion, actorId, actorRole, ct);
+        Upgrades.Add(1, new TagList
+        {
+            { "module", moduleId }, { "result", result.Ok ? "ok" : (result.Error?.Code ?? "error") },
+        });
+        return result;
+    }
+
+    private async Task<Result<string>> UpgradeCoreAsync(string tenantId, string moduleId, string toVersion,
         string actorId, string actorRole, CancellationToken ct)
     {
         var tenant = await ports.GetTenantAsync(tenantId, ct);
