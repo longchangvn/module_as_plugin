@@ -95,12 +95,54 @@ public static class AdminEndpoints
             return Results.Json(new { data = new { reset = true } });
         });
 
-        // Internal: platform lifecycle writes module routes (source=module-install, audited).
-        app.MapPost("/api/v1/gateway/internal/module-routes", async (GatewayStore store, ModuleRoutesRequest req) =>
+        // Internal: platform lifecycle pushes per-tenant module state
+        // (source=module-install). X-Internal-Key required on every call (R-GW2).
+        var modulesApi = app.MapGroup("/api/v1/gateway/internal/modules")
+            .AddEndpointFilter(async (fc, next) => GatewayHelpers.IsInternalCaller(fc.HttpContext, configuration)
+                ? await next(fc)
+                : Results.Json(new { error = new { code = "UNAUTHORIZED", message = "Invalid internal key." } }, statusCode: 401));
+        modulesApi.MapPut("/{moduleId}/tenants/{tenantId}", async (GatewayStore store, string moduleId, string tenantId, ModuleTenantUpsert req) =>
         {
-            var result = await store.ApplyModuleRoutesAsync(req.ModuleId, req.Upstreams, req.Enabled, req.Remove, req.BaseUrl);
-            return result.Ok ? Results.Json(new { data = new { applied = result.Value } })
-                : Results.Json(new { error = new { code = "GATEWAY_APPLY_FAILED", message = result.Error } }, statusCode: 502);
+            if (GatewayStore.ValidateModuleSpec(moduleId, tenantId, req.Version, req.BaseUrl, req.Upstreams) is { } invalid)
+                return ConfigInvalid(invalid);
+            var (ok, err) = await store.UpsertModuleTenantAsync(moduleId, tenantId, req);
+            return ok ? Results.Json(new { data = new { moduleId, tenantId, req.Enabled, req.Version } }) : ApplyFailed(err);
         });
+        modulesApi.MapDelete("/{moduleId}/tenants/{tenantId}", async (GatewayStore store, string moduleId, string tenantId) =>
+        {
+            var (ok, err) = await store.RemoveModuleTenantAsync(moduleId, tenantId);
+            return ok ? Results.Json(new { data = new { moduleId, tenantId, removed = true } }) : ApplyFailed(err);
+        });
+        // Full replace — e.g. disaster recovery; the reconciler uses the same path in-process.
+        app.MapPut("/api/v1/gateway/internal/modules:snapshot", async (GatewayStore store, HttpContext ctx, ModuleStatesSnapshot req) =>
+        {
+            if (!GatewayHelpers.IsInternalCaller(ctx, configuration))
+                return Results.Json(new { error = new { code = "UNAUTHORIZED", message = "Invalid internal key." } }, statusCode: 401);
+            if (SnapshotError(req) is { } invalid) return ConfigInvalid(invalid);
+            var (ok, _, drift, err) = await store.ReplaceModuleStatesAsync(ModuleTenantState.FromSnapshot(req.Modules));
+            return ok ? Results.Json(new { data = new { modules = req.Modules.Count, drift } }) : ApplyFailed(err);
+        });
+        app.MapGet("/api/v1/gateway/internal/modules", (GatewayStore store, HttpContext ctx) =>
+            GatewayHelpers.IsInternalCaller(ctx, configuration)
+                ? Results.Json(new { data = store.ModuleStates.Modules })
+                : Results.Json(new { error = new { code = "UNAUTHORIZED", message = "Invalid internal key." } }, statusCode: 401));
     }
+
+    public static string? SnapshotError(ModuleStatesSnapshot snapshot)
+    {
+        foreach (var m in snapshot.Modules ?? [])
+        {
+            foreach (var v in m.Versions ?? [])
+                if (GatewayStore.ValidateModuleSpec(m.ModuleId, null, v.Version, v.BaseUrl, v.Upstreams) is { } err) return err;
+            foreach (var t in m.Tenants ?? [])
+                if (GatewayStore.ValidateModuleSpec(m.ModuleId, t.TenantId, t.Version, null, null) is { } err) return err;
+        }
+        return null;
+    }
+
+    private static IResult ConfigInvalid(string message) =>
+        Results.Json(new { error = new { code = "CONFIG_INVALID", message, retryable = false } }, statusCode: 400);
+
+    private static IResult ApplyFailed(string? message) =>
+        Results.Json(new { error = new { code = "GATEWAY_APPLY_FAILED", message } }, statusCode: 502);
 }

@@ -1,0 +1,75 @@
+# manifest.yml — __DISPLAY_NAME__ (scaffolded by tools/create-module).
+manifestVersion: "1.0"
+
+module:
+  name: __MODULE_NAME__
+  displayName: __DISPLAY_NAME__
+  description: __DESCRIPTION_YAML__
+  version: 1.0.0
+  owner: __OWNER__
+  license: proprietary
+  icon: __ICON__
+  category: __CATEGORY__
+
+dependencies: []
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+  openapiUrl: /swagger/v1/swagger.json
+
+frontend:
+  remoteUrl: http://localhost:__WEB_PORT__/assets/remoteEntry.js
+  scope: __SCOPE__
+  modulePrefix: /__MODULE_NAME__
+  routes:
+    - path: /__MODULE_NAME__
+      exposes: ./Page
+      requiredPermission: null
+      menuId: __MODULE_NAME__
+  menus:
+    - id: __MODULE_NAME__
+      parentId: null
+      title: __DISPLAY_NAME__
+      icon: __ICON__
+      route: /__MODULE_NAME__
+      requiredPermission: null
+      order: __MENU_ORDER__
+  uiPermissions: [__PERM___DATA_PROTECTED]
+
+api:
+  routes:
+    - upstream: /api/v1/__MODULE_NAME__/{rest}
+      downstream: /api/v1/{rest}
+      methods: [GET]
+      auth: true
+      requiredPermission: null
+      priority: 10
+  seed:
+    roles:
+      - name: __DISPLAY_NAME__ Viewer
+        description: Can view __DISPLAY_NAME__ protected data
+        isSystem: true
+    permissions:
+      - code: __PERM___DATA_VIEW
+        object: __PERM___DATA
+        action: VIEW
+        name: View __DISPLAY_NAME__ data
+        isMenuAccess: true
+      - code: __PERM___DATA_PROTECTED
+        object: __PERM___DATA
+        action: PROTECTED
+        name: View __DISPLAY_NAME__ protected data
+        isMenuAccess: false
+    menus: []
+    userRoles: []
+    rolePermissions:
+      - roleName: __DISPLAY_NAME__ Viewer
+        permissions: [__PERM___DATA_VIEW, __PERM___DATA_PROTECTED]
+    userAdditionalPermissions: []
+    users: []
+    gatewayRules: []
+
+upgrade:
+  notes: "Initial release."
+  migrateEndpoint: /internal/migrate

@@ -25,7 +25,9 @@ var tenantDb = postgres.AddDatabase("Tenant", "module_platform");
 
 var gateway = builder.AddProject<Projects.Gateway_Api>("gateway")
     .WithEndpoint("http", e => { e.Port = 5100; e.IsProxied = false; })
-    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5100");
+    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5100")
+    .WithEnvironment("InternalApi__Key", "dev-internal-key")
+    .WithEnvironment("Platform__BaseUrl", "http://localhost:5121");
 
 var auth = builder.AddProject<Projects.Auth_Api>("auth")
     .WithEndpoint("http", e => { e.Port = 5122; e.IsProxied = false; })

@@ -63,12 +63,7 @@ public static class InternalEndpoints
     app.MapGet("/internal/tenants/{id}/connection", async (
         CatalogDbContext db, HttpContext ctx, IConfiguration cfg, TenantConnectionProtector protector, string id) =>
     {
-        var expected = cfg["InternalApi:Key"];
-        var presented = ctx.Request.Headers["X-Internal-Key"].FirstOrDefault() ?? "";
-        var ok = !string.IsNullOrWhiteSpace(expected) &&
-            CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(presented));
-        if (!ok)
+        if (!IsInternalCaller(ctx, cfg))
             return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid internal key.", 401);
         var t = await db.Tenants.FindAsync(id);
         if (t is null)
@@ -104,5 +99,47 @@ public static class InternalEndpoints
         await db.SaveChangesAsync();
         return Results.Json(new { data = new { id = t.Id, status = t.Status.ToString(), dbStatus = t.DbStatus.ToString() } });
     });
+
+    // Gateway reconcile source (R-GW1, G4/P2): per-tenant module state from the
+    // catalog. A tenant entry exists while the install row exists; enabled only
+    // when Installed/Installing (upgrade) and Enabled. X-Internal-Key required.
+    // NOT routed by the gateway.
+    app.MapGet("/internal/gateway/module-states", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg) =>
+    {
+        if (!IsInternalCaller(ctx, cfg))
+            return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid internal key.", 401);
+        var installs = await db.Installs.AsNoTracking().Where(i => i.State != InstallState.NotInstalled).ToListAsync();
+        var keys = installs.Select(i => i.ModuleId + "@" + i.Version).Distinct().ToList();
+        var versions = await db.ModuleVersions.AsNoTracking()
+            .Where(v => keys.Contains(v.ModuleId + "@" + v.Version)).ToListAsync();
+        var modules = installs.GroupBy(i => i.ModuleId, StringComparer.OrdinalIgnoreCase).Select(g => new
+        {
+            moduleId = g.Key,
+            versions = versions.Where(v => v.ModuleId.Equals(g.Key, StringComparison.OrdinalIgnoreCase)).Select(v =>
+            {
+                ManifestFile? m = null;
+                try { m = ManifestParser.Parse(v.ManifestYaml); } catch { /* unparseable manifest → no routes */ }
+                return new
+                {
+                    version = v.Version, baseUrl = v.ArtifactApiUrl,
+                    upstreams = m is null ? Array.Empty<object>() : EfLifecyclePorts.GatewayUpstreams(m),
+                };
+            }).ToList(),
+            tenants = g.Select(i => new
+            {
+                tenantId = i.TenantId, version = i.Version,
+                enabled = i.Enabled && (i.State is InstallState.Installed or InstallState.Installing),
+            }).ToList(),
+        }).ToList();
+        return Results.Json(new { data = new { modules } });
+    });
+    }
+
+    private static bool IsInternalCaller(HttpContext ctx, IConfiguration cfg)
+    {
+        var expected = cfg["InternalApi:Key"];
+        var presented = ctx.Request.Headers["X-Internal-Key"].FirstOrDefault() ?? "";
+        return !string.IsNullOrWhiteSpace(expected) &&
+            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(presented));
     }
 }

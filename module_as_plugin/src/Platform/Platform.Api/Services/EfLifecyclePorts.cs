@@ -83,26 +83,21 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
 
     public async Task ApplyGatewayRoutesAsync(string tenantId, ManifestFile manifest, bool enabled, CancellationToken ct)
     {
-        var baseUrl = (cfg["Gateway:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
         // A3 fix: the gateway must not guess the module's downstream — send the
         // published artifact API base URL; falls back to registry/config inside
         // the gateway when the artifact URL is absent.
         var artifactApiUrl = await db.ModuleVersions.AsNoTracking()
             .Where(x => x.ModuleId == manifest.Module.Name && x.Version == manifest.Module.Version)
             .Select(x => x.ArtifactApiUrl).FirstOrDefaultAsync(ct);
-        using var client = http.CreateClient("lifecycle");
-        using var res = await client.PostAsJsonAsync($"{baseUrl}/api/v1/gateway/internal/module-routes",
-            new
+        // R-GW1/R-GW2: per-tenant state on the X-Internal-Key protected internal API.
+        using var res = await SendGatewayAsync(HttpMethod.Put, manifest.Module.Name, tenantId,
+            JsonContent.Create(new
             {
-                moduleId = manifest.Module.Name,
-                upstreams = manifest.Api.Routes.Select(r => new
-                {
-                    upstream = r.Upstream, downstream = r.Downstream,
-                    methods = r.Methods.ToArray(),
-                }).ToArray(),
                 enabled,
+                version = manifest.Module.Version,
                 baseUrl = artifactApiUrl,
-            }, ct);
+                upstreams = GatewayUpstreams(manifest),
+            }), ct);
         if (!res.IsSuccessStatusCode)
         {
             var body = await res.Content.ReadAsStringAsync(ct);
@@ -138,23 +133,36 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
 
     public async Task RemoveModuleRoutesAsync(string tenantId, ManifestFile manifest, CancellationToken ct)
     {
-        var baseUrl = (cfg["Gateway:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
-        using var client = http.CreateClient("lifecycle");
-        using var res = await client.PostAsJsonAsync($"{baseUrl}/api/v1/gateway/internal/module-routes",
-            new
-            {
-                moduleId = manifest.Module.Name,
-                upstreams = Array.Empty<object>(),
-                enabled = false,
-                remove = true,
-            }, ct);
+        using var res = await SendGatewayAsync(HttpMethod.Delete, manifest.Module.Name, tenantId, null, ct);
         if (!res.IsSuccessStatusCode)
         {
             var body = await res.Content.ReadAsStringAsync(ct);
             throw new InvalidOperationException($"Gateway remove failed ({(int)res.StatusCode}): {body}");
         }
+        // P3: the platform rule audit stays while any other tenant still has the module.
+        var othersInstalled = await db.Installs.AnyAsync(
+            x => x.ModuleId == manifest.Module.Name && x.TenantId != tenantId && x.State != InstallState.NotInstalled, ct);
+        if (othersInstalled) return;
         db.GatewayRules.RemoveRange(db.GatewayRules.Where(x => x.ModuleId == manifest.Module.Name));
         await db.SaveChangesAsync(ct);
+    }
+
+    public static object[] GatewayUpstreams(ManifestFile manifest) =>
+        manifest.Api.Routes.Select(r => (object)new
+        {
+            upstream = r.Upstream, downstream = r.Downstream,
+            methods = r.Methods.ToArray(),
+        }).ToArray();
+
+    private async Task<HttpResponseMessage> SendGatewayAsync(HttpMethod method, string moduleId, string tenantId, HttpContent? content, CancellationToken ct)
+    {
+        var baseUrl = (cfg["Gateway:BaseUrl"] ?? "http://localhost:5100").TrimEnd('/');
+        using var req = new HttpRequestMessage(method,
+            $"{baseUrl}/api/v1/gateway/internal/modules/{Uri.EscapeDataString(moduleId)}/tenants/{Uri.EscapeDataString(tenantId)}")
+        { Content = content };
+        req.Headers.Add("X-Internal-Key", cfg["InternalApi:Key"]);
+        var client = http.CreateClient("lifecycle");
+        return await client.SendAsync(req, ct);
     }
 
     public async Task SeedTenantAsync(string tenantId, ManifestFile manifest, CancellationToken ct)

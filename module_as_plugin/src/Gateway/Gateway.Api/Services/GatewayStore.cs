@@ -22,7 +22,13 @@ public sealed class GatewayStore : IDisposable
     private readonly ILogger<GatewayStore> _log;
     private readonly IInternalConfigurationCreator _creator;
     private readonly IInternalConfigurationRepository _repo;
-    private readonly ConcurrentDictionary<string, ModuleState> _modules = new(StringComparer.OrdinalIgnoreCase);
+    // Per-tenant module state (R-GW1); replaced wholesale under _gate, read lock-free.
+    private volatile ModuleTenantState _state = new();
+    // Bumped on every per-tenant push; the reconciler skips a snapshot fetched
+    // before a newer push so it cannot revert it.
+    private long _pushGeneration;
+
+    public long PushGeneration => Interlocked.Read(ref _pushGeneration);
 
     public GatewayStore(IHostEnvironment env, ILogger<GatewayStore> log,
         IInternalConfigurationCreator creator, IInternalConfigurationRepository repo)
@@ -44,24 +50,11 @@ public sealed class GatewayStore : IDisposable
         try
         {
             if (!File.Exists(_modulesPath)) return;
-            var doc = JsonNode.Parse(File.ReadAllText(_modulesPath))?.AsObject();
-            foreach (var (key, node) in doc?["modules"]?.AsObject() ?? new JsonObject())
-            {
-                if (Enum.TryParse<ModuleState>(node?.GetValue<string>(), out var state))
-                    _modules[key] = state;
-            }
+            _state = ModuleTenantState.FromJson(JsonNode.Parse(File.ReadAllText(_modulesPath)), out var legacy);
+            if (legacy)
+                _log.LogWarning("{path} is the legacy global (v1) format; module states start empty until the Platform reconcile", _modulesPath);
         }
         catch (Exception ex) { _log.LogWarning(ex, "Could not load {path}; module states start empty", _modulesPath); }
-    }
-
-    private async Task PersistModuleStatesAsync()
-    {
-        var doc = new JsonObject
-        {
-            ["modules"] = new JsonObject(_modules.Select(kv =>
-                new KeyValuePair<string, JsonNode?>(kv.Key, JsonValue.Create(kv.Value.ToString())))),
-        };
-        await WriteJsonAsync(_modulesPath, doc);
     }
 
     public List<object> Services()
@@ -230,47 +223,111 @@ public sealed class GatewayStore : IDisposable
         return (f.Scheme, f.Host, f.IsDefaultPort ? 80 : f.Port);
     }
 
-    public async Task<(bool Ok, int Value, string? Error)> ApplyModuleRoutesAsync(string moduleId, List<ModuleUpstream> upstreams, bool enabled, bool remove = false, string? baseUrl = null)
+    // Current published per-tenant state (read-only; request guard + internal GET).
+    public ModuleTenantState ModuleStates => _state;
+
+    // Input checks for pushed module specs: ids are path-safe, baseUrl is an
+    // absolute http(s) URL, and every upstream stays inside /api/v1/{moduleId}/
+    // so a module can never shadow platform/auth/admin/tenant/gateway routes.
+    public static string? ValidateModuleSpec(string moduleId, string? tenantId, string? version, string? baseUrl, IEnumerable<ModuleUpstream>? upstreams)
     {
-        if (remove) _modules.TryRemove(moduleId, out _);
-        else _modules[moduleId] = enabled ? ModuleState.Enabled : ModuleState.Disabled;
+        static bool SafeId(string? s) => !string.IsNullOrWhiteSpace(s) && s.Length <= 128 &&
+            s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+        if (!SafeId(moduleId) || Endpoints.GatewayHelpers.ModuleFromPath($"/api/v1/{moduleId}/x") is null)
+            return $"Invalid module id '{moduleId}'.";
+        if (tenantId is not null && !SafeId(tenantId)) return $"Invalid tenant id '{tenantId}'.";
+        if (string.IsNullOrWhiteSpace(version)) return "Version required.";
+        if (!string.IsNullOrWhiteSpace(baseUrl) &&
+            !(Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"))
+            return "baseUrl must be an absolute http(s) URL.";
+        var prefix = $"/api/v1/{moduleId}/";
+        foreach (var u in upstreams ?? Enumerable.Empty<ModuleUpstream>())
+        {
+            if (string.IsNullOrWhiteSpace(u.Upstream) || !u.Upstream.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return $"Upstream '{u.Upstream}' must start with '{prefix}'.";
+            if (string.IsNullOrWhiteSpace(u.Downstream) || !u.Downstream.StartsWith('/'))
+                return $"Downstream '{u.Downstream}' must start with '/'.";
+        }
+        return null;
+    }
+
+    public Task<(bool Ok, string? Error)> UpsertModuleTenantAsync(string moduleId, string tenantId, ModuleTenantUpsert req)
+    {
+        Interlocked.Increment(ref _pushGeneration);
+        return ApplyStateAsync($"module-tenant:{moduleId}/{tenantId}", s =>
+        {
+            s.Upsert(moduleId, tenantId, req.Enabled, req.Version, req.BaseUrl, req.Upstreams ?? new());
+            return s;
+        }, moduleId);
+    }
+
+    public Task<(bool Ok, string? Error)> RemoveModuleTenantAsync(string moduleId, string tenantId)
+    {
+        Interlocked.Increment(ref _pushGeneration);
+        return ApplyStateAsync($"module-tenant-remove:{moduleId}/{tenantId}", s => { s.Remove(moduleId, tenantId); return s; }, moduleId);
+    }
+
+    // Full replace (snapshot push or reconcile). With expectedGeneration set,
+    // the replace is skipped (Skipped=true) if a per-tenant push landed since
+    // the snapshot was fetched. Drift = (module, tenant) entries that changed.
+    public async Task<(bool Ok, bool Skipped, int Drift, string? Error)> ReplaceModuleStatesAsync(ModuleTenantState next, long? expectedGeneration = null)
+    {
+        var drift = 0;
+        var skipped = false;
+        var (ok, err) = await ApplyStateAsync("module-snapshot", current =>
+        {
+            if (expectedGeneration is { } g && g != PushGeneration) { skipped = true; return null; }
+            drift = ModuleTenantState.Drift(current, next);
+            return next.Clone();
+        }, moduleId: null);
+        return (ok, skipped, drift, err);
+    }
+
+    // Single writer: mutate a clone, rebuild the module-managed Ocelot routes
+    // (one module, or all when moduleId is null), validate + hot-swap, then
+    // persist and publish the new state. Any failure leaves state, file and the
+    // running route table untouched. mutate returning null = no-op.
+    private async Task<(bool Ok, string? Error)> ApplyStateAsync(string source, Func<ModuleTenantState, ModuleTenantState?> mutate, string? moduleId)
+    {
         await _gate.WaitAsync();
         try
         {
+            var next = mutate(_state.Clone());
+            if (next is null) return (true, null);
             var ocelot = JsonNode.Parse(await File.ReadAllTextAsync(_ocelotPath))!.AsObject();
             var routes = ocelot["Routes"]!.AsArray();
-            // remove previous module-install rows for this module, then re-add when enabled
-            foreach (var old in routes.Where(n => n?["Metadata"]?["managedBy"]?.GetValue<string>() == $"module:{moduleId}").ToList())
+            foreach (var old in routes.Where(n => n?["Metadata"]?["managedBy"]?.GetValue<string>() is { } by &&
+                         (moduleId is null ? by.StartsWith("module:") : by == $"module:{moduleId}")).ToList())
                 routes.Remove(old);
-            if (enabled)
+            var services = ReadServices();
+            foreach (var id in moduleId is null ? next.Modules.Keys.ToList() : new List<string> { moduleId })
             {
-                var (scheme, host, port) = ResolveModuleDownstream(moduleId, baseUrl, ReadServices());
-                foreach (var u in upstreams)
+                if (next.Effective(id) is not { } spec) continue;
+                var (scheme, host, port) = ResolveModuleDownstream(id, spec.BaseUrl, services);
+                foreach (var u in spec.Upstreams)
                 {
                     routes.Add(JsonNode.Parse(JsonSerializer.Serialize(new
                     {
-                        Key = $"rt_{moduleId}_{Math.Abs(u.Upstream.GetHashCode()):x8}",
+                        Key = $"rt_{id}_{Math.Abs(u.Upstream.GetHashCode()):x8}",
                         UpstreamPathTemplate = u.Upstream,
                         UpstreamHttpMethod = u.Methods,
                         DownstreamPathTemplate = u.Downstream,
                         DownstreamScheme = scheme,
                         DownstreamHostAndPorts = new[] { new { Host = host, Port = port } },
                         Priority = 10,
-                        Metadata = new Dictionary<string, string> { ["serviceId"] = moduleId, ["source"] = "module-install", ["managedBy"] = $"module:{moduleId}" },
+                        Metadata = new Dictionary<string, string> { ["serviceId"] = id, ["source"] = "module-install", ["managedBy"] = $"module:{id}" },
                     })));
                 }
             }
-            var (ok, err) = await ValidatePersistSwapAsync("module-install", ocelot);
-            if (!ok) return (false, 0, err);
-            await PersistModuleStatesAsync();
-            return (true, upstreams.Count, null);
+            var (ok, err) = await ValidatePersistSwapAsync(source, ocelot);
+            if (!ok) return (false, err);
+            await WriteJsonAsync(_modulesPath, next.ToJson());
+            _state = next;
+            return (true, null);
         }
-        catch (Exception ex) { return (false, 0, ex.Message); }
+        catch (Exception ex) { return (false, ex.Message); }
         finally { _gate.Release(); }
     }
-
-    public ModuleState GetModuleState(string moduleId) =>
-        _modules.TryGetValue(moduleId, out var s) ? s : ModuleState.NotInstalled;
 
     public async Task<List<object>> ServicesWithHealthAsync(bool checkHealth)
     {

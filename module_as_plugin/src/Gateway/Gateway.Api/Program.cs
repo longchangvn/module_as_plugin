@@ -1,6 +1,8 @@
 // Gateway API :5100 — Ocelot proxy + admin API (/api/v1/gateway/**).
 // Pipeline: CORS -> TrafficMiddleware -> admin branch (auth) -> tenant/module guard -> Ocelot.
 // Config: ocelot.json (persistent) + gateway-services.json registry; single writer (SemaphoreSlim).
+// Module state is per tenant (gateway-modules.json v2): pushed by the Platform over the
+// X-Internal-Key internal API and reconciled from the Platform snapshot (ModuleStateReconciler).
 // Endpoint mappings live in Endpoints/ (AdminEndpoints, HealthEndpoints);
 // services in Services/, middleware in Middleware/, contracts in Models/.
 using System.Text;
@@ -25,6 +27,11 @@ builder.Services.AddSingleton<GatewayStore>();
 builder.Services.AddSingleton<TrafficRecorder>();
 
 var jwtSecret = builder.RequireSecret("Jwt:SecretKey", Extensions.DevJwtSecret);
+// Guards /api/v1/gateway/internal/** and authenticates the reconcile pull (R-GW2).
+builder.RequireSecret("InternalApi:Key", Extensions.DevInternalKey);
+builder.Services.AddHttpClient("platform", c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddSingleton<ModuleStateReconciler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ModuleStateReconciler>());
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
     o.TokenValidationParameters = new TokenValidationParameters
@@ -71,28 +78,18 @@ app.UseRateLimiter();
 
 AdminEndpoints.Map(app);
 
-// Tenant + module-enabled guard before proxying (SR-4, G-BR5).
+// Per-tenant module guard before proxying (SR-4, G-BR5, R-GW1).
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.StartsWithSegments("/api/v1/gateway") || ctx.Request.Path is { Value: "/healthz" or "/readyz" or "/swagger" })
     { await next(); return; }
-    var store = ctx.RequestServices.GetRequiredService<GatewayStore>();
     var moduleId = GatewayHelpers.ModuleFromPath(ctx.Request.Path.Value ?? "");
-    if (moduleId is not null)
+    if (moduleId is not null &&
+        GatewayHelpers.ModuleGuard(ctx, ctx.RequestServices.GetRequiredService<GatewayStore>().ModuleStates, moduleId) is { } deny)
     {
-        var state = store.GetModuleState(moduleId);
-        if (state == ModuleState.NotInstalled)
-        {
-            ctx.Response.StatusCode = 404;
-            await ctx.Response.WriteAsJsonAsync(new { error = new { code = "UNKNOWN_MODULE_ROUTE", message = $"No route for module '{moduleId}'." } });
-            return;
-        }
-        if (state == ModuleState.Disabled)
-        {
-            ctx.Response.StatusCode = 503;
-            await ctx.Response.WriteAsJsonAsync(new { error = new { code = "MODULE_DISABLED", message = $"Module '{moduleId}' is disabled." } });
-            return;
-        }
+        ctx.Response.StatusCode = deny.Status;
+        await ctx.Response.WriteAsJsonAsync(new { error = new { code = deny.Code, message = deny.Message } });
+        return;
     }
     await next();
 });

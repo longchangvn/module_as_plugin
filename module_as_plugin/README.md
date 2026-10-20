@@ -185,9 +185,24 @@ Two template-built modules for exercising the install lifecycle end to end
   platform shell stays operator-only.
 - Shared guard helper: `SharedKernel/ModuleGuards.cs` (tenant claim + header
   match + usability, permission resolve).
-- Known limits: gateway module enable/disable state is global, not per
-  tenant (open risk **R-GW1**, `docs/gap-closure-report.md`); remotes must be
-  built (`vite preview`), not `vite dev`.
+- Gateway module gating is per tenant (tenant from the validated JWT):
+  enable/disable/uninstall in one tenant never affects another (R-GW1 closed).
+  The Platform pushes state to the `X-Internal-Key`-protected
+  `/api/v1/gateway/internal/modules/{moduleId}/tenants/{tenantId}` and the
+  gateway reconciles from `GET /internal/gateway/module-states` every 5 min
+  (R-GW2 closed; see `docs/gap-closure-report.md`). The gateway therefore
+  needs `InternalApi:Key` and `Platform:BaseUrl`.
+- Known limits: remotes must be built (`vite preview`), not `vite dev`.
+
+## Creating a new module
+
+Guide: [docs/module-developer-guide.md](docs/module-developer-guide.md). Scaffold + wire in one step:
+
+```bash
+node tools/create-module/create-module.mjs new <name> -y     # API + remote + manifest + parity test
+node tools/create-module/create-module.mjs publish <name> --password <pw>
+node tools/create-module/create-module.mjs install <name> --tenant <TENANT_ID> --password <pw>
+```
 
 ## Module Catalog (platform shell, `/modules`)
 
@@ -206,7 +221,6 @@ Two template-built modules for exercising the install lifecycle end to end
 - APIs: `GET /api/v1/platform/modules` (versions newest-first by semver,
   dependencies of the latest version, `installedTenantCount`),
   `GET /api/v1/platform/modules/{id}/installs` (per-tenant state for one module).
-- ⚠ Multi-tenant installs make risk **R-GW1** easier to hit.
 
 ## Tenant routing prefix
 

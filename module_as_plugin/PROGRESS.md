@@ -38,7 +38,7 @@ cd ../tenant-admin && npx tsc --noEmit          # expect clean
 
 ## Done (this session)
 
-- [x] P4 Cross-service side effects: Platform→Gateway route push/remove (`internal/module-routes`),
+- [x] P4 Cross-service side effects: Platform→Gateway route push/remove (now per tenant: `internal/modules/{id}/tenants/{tid}`),
   Platform→Auth seed apply/revoke (`internal/seed:apply|revoke`, idempotent upserts, R6 revoke)
 - [x] P5 Dev login + JWT mint (`JwtMint` in SharedKernel; platform `/auth/login`, tenant `/auth/login`
   with `tenant_admin` claim); dev auto-seed (`admin@local`, `tnt_demo`); password verify stubbed (noted)
@@ -254,18 +254,21 @@ cd ../tenant-admin && npx tsc --noEmit          # expect clean
   `versions[]`, `dependencies[]`, `installedTenantCount`, status as string;
   new `GET /platform/modules/{id}/installs`. 118/118 tests; shell tsc + build
   clean. Open risk R-GW1 documented (gateway state global).
+- [x] **Gateway per-tenant gating — R-GW1 + R-GW2 CLOSED** (D1 push + 5-min
+  reconcile, D2 newest installed version routes, D3 JWT tenant at gateway).
+  Per-(module, tenant) state (`ModuleTenantState`, `gateway-modules.json` v2),
+  `X-Internal-Key` internal API (old `/internal/module-routes` removed),
+  `ModuleStateReconciler` ← Platform `GET /internal/gateway/module-states`,
+  `GatewayRules` removed only on last-tenant uninstall. New
+  `tests/Gateway.Api.Tests` (39); suite 157/157; live two-tenant matrix on
+  isolated :5110/:5131 passed. Details: `docs/gap-closure-report.md`.
 
 ## Next up
 
 1. P10: continue the `verification_guidline.md` pass (black/gray/white-box) over
    the remaining §5–§14 requirements; the gap items above are verified.
-2. **PENDING APPROVAL — gateway per-tenant gating** (fixes open risks
-   **R-GW1** global module state and **R-GW2** unauthenticated
-   `/api/v1/gateway/internal/module-routes`, CRITICAL). Proposal + 3 decisions
-   (D1 push+reconcile, D2 version skew, D3 JWT at gateway):
-   `docs/proposal-gateway-per-tenant-state.md`. Resume: get D1–D3 answered →
-   implement G1–G5, P1–P3 → two-tenant matrix. Risk register:
-   `docs/gap-closure-report.md` → "Known risks".
+2. Restart the Aspire AppHost so the gateway picks up `InternalApi__Key` /
+   `Platform__BaseUrl`; re-run the two-tenant matrix through the UI.
 3. Gap Phase 2 (required): revocable sessions (`admin_sessions`, A-BR1/A-BR4),
    tenant menus CRUD + tenant-admin page, asymmetric JWT signing (RS256;
    Platform/Auth sign, others verify). Phase 3: OIDC RP login (needs IdP

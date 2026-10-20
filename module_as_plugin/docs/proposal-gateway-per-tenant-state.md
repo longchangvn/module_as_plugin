@@ -1,6 +1,10 @@
 # Proposal: Per-tenant module gating at the gateway (fixes R-GW1, R-GW2)
 
-**Status: PROPOSED — pending approval** (3 decisions below). No code changed yet.
+**Status: IMPLEMENTED (2026-10-20)** — D1–D3 approved as recommended. Deviations: the
+snapshot shape is `{ modules: [{ moduleId, versions:[{version, baseUrl, upstreams}], tenants:[{tenantId, enabled, version}] }] }`
+so the gateway can fall back to an older version's routes when the newest tenant
+uninstalls; unauthenticated module requests get `401 UNAUTHORIZED` (not 403); pushes also
+confine upstreams to `/api/v1/{moduleId}/`. Results: `docs/gap-closure-report.md` → "Known risks".
 Risk register: `docs/gap-closure-report.md` → "Known risks". Tracked in `PROGRESS.md` → Next up.
 
 ## 1. Problem

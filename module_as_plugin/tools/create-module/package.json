@@ -1,0 +1,18 @@
+{
+  "name": "@module-platform/create-module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scaffold, wire, publish and install Module Platform modules (API + federation remote + manifest).",
+  "type": "module",
+  "bin": {
+    "create-module": "create-module.mjs"
+  },
+  "files": [
+    "create-module.mjs",
+    "templates",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -21,6 +21,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+      # Guards /api/v1/gateway/internal/** and the reconcile pull from the platform.
+      InternalApi__Key: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY (>=32 chars, see .env.example)}
+      Platform__BaseUrl: http://platform:8080
     # Persist file stores across restarts by bind-mounting the individual files
     # (copy them out of the image once, then uncomment):
     # volumes:

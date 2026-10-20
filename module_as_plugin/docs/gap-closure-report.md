@@ -159,9 +159,48 @@ N2 (single shared HMAC key across services) is planned for Phase 2 (RS256).
 
 ---
 
-## Known risks (open — accepted, fix later)
+## Known risks
 
-### R-GW1 — Gateway module state is global, not per tenant (HIGH)
+**R-GW1 and R-GW2 are CLOSED** (2026-10-20) by
+`docs/proposal-gateway-per-tenant-state.md` (status IMPLEMENTED, D1–D3 as
+recommended). Summary of the fix:
+
+- Gateway state is per (module, tenant) (`Services/ModuleTenantState.cs`,
+  `gateway-modules.json` v2). Ocelot routes for a module exist while ≥ 1
+  tenant has it and follow the newest installed version (D2).
+- Guard reads the tenant from the **validated JWT** `tenantId` claim (D3):
+  no/invalid token → `401 UNAUTHORIZED`; no tenant claim or mismatching
+  `X-Tenant-Id` → `403 FORBIDDEN_TENANT`; not installed for that tenant →
+  `404 UNKNOWN_MODULE_ROUTE`; disabled for that tenant → `503 MODULE_DISABLED`.
+- `POST /api/v1/gateway/internal/module-routes` is **removed**. Replaced by
+  `PUT|DELETE /api/v1/gateway/internal/modules/{moduleId}/tenants/{tenantId}`,
+  `PUT /api/v1/gateway/internal/modules:snapshot` and `GET /api/v1/gateway/internal/modules`,
+  all requiring `X-Internal-Key` (`InternalApi:Key`, fail-closed `RequireSecret`,
+  fixed-time compare). Pushes are validated: path-safe ids, http(s) `baseUrl`,
+  upstreams confined to `/api/v1/{moduleId}/` (no shadowing platform/auth routes).
+- Reconcile (D1): `ModuleStateReconciler` pulls Platform
+  `GET /internal/gateway/module-states` (`X-Internal-Key`) at startup and every
+  5 min (`ModuleReconcile:IntervalSeconds`; 15 s retry while the Platform is
+  down), replaces state, logs drift; skips a snapshot if a push landed during
+  the fetch. Legacy v1 / corrupt state files are rebuilt this way.
+- Platform: `EfLifecyclePorts` pushes per tenant with `X-Internal-Key`;
+  `GatewayRules` rows are removed only when the last tenant uninstalls.
+
+Verification: `tests/Gateway.Api.Tests` (39 unit tests). I ran the live matrix
+against isolated gateway and platform copies on :5110/:5131. Results: without a
+key or with a wrong key, every internal call → 401. The old endpoint → 404. An
+upstream squatting `/api/v1/platform` → 400. Disabling A → B is still proxied.
+Pushing B again → A stays 503. Uninstalling A → B is still proxied and the
+route stays. No token → 401, platform JWT → 403, forged header → 403. After a
+restart the state is kept and reconciled. A v1 or corrupted file is rebuilt
+from the Platform.
+
+Residual: a lifecycle step that fails after its gateway push (e.g. seed failure)
+leaves the gateway ahead of the catalog until the next reconcile (≤ 5 min);
+tenants on older versions share the newest version's downstream (modules must
+stay backward compatible, SR-8).
+
+### R-GW1 — Gateway module state is global, not per tenant (HIGH) — CLOSED
 
 **What**: `Gateway.Api/Services/GatewayStore` keeps one enabled/disabled state
 per module (`_modules[moduleId]`) and one set of Ocelot routes per module, with
@@ -187,7 +226,7 @@ disable/uninstall while other tenants use the module.
 Full design, file list, test matrix and the **3 decisions pending
 approval**: `docs/proposal-gateway-per-tenant-state.md` (status: PROPOSED).
 
-### R-GW2 — Unauthenticated gateway internal route API (CRITICAL)
+### R-GW2 — Unauthenticated gateway internal route API (CRITICAL) — CLOSED
 
 **What**: `POST /api/v1/gateway/internal/module-routes`
 (`Gateway.Api/Endpoints/AdminEndpoints.cs`) has no authentication and is
