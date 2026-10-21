@@ -80,6 +80,18 @@ namespace Platform.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ModuleType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("remote");
+
+                    b.Property<string>("PackagePath")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PackageSha256")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset>("PublishedAt")
                         .HasColumnType("timestamp with time zone");
 

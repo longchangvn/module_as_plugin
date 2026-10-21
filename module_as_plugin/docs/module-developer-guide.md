@@ -22,6 +22,7 @@ step says otherwise.
 9. [Rules and conventions](#9-rules-and-conventions)
 10. [Troubleshooting](#10-troubleshooting)
 11. [Pre-PR checklist](#11-pre-pr-checklist)
+12. [Module types: remote vs plugin](#12-module-types-remote-vs-plugin)
 
 ---
 
@@ -1490,3 +1491,135 @@ dotnet test ModulePlatform.sln --nologo -v q       # all green, incl. <Pascal>Mo
 - [ ] Wiring present: sln, AppHost csproj + `Program.cs`, `docker-compose.yml`, test csproj.
 - [ ] Validation scenarios (section 8.6) run against a local stack.
 - [ ] `modules/<name>/README.md` is up to date. The module is added to the root [README.md](../README.md) (layout and ports) if it is a long-lived module.
+
+---
+
+## 12. Module types: remote vs plugin
+
+Sections 1–11 describe the default **remote** type. `module.type` (optional, default `remote`)
+selects how the platform hosts a module. The manifest stays `manifestVersion: "1.0"`, so existing
+manifests are unchanged. Spec: [`specs/002-module-hosting-types`](../../specs/002-module-hosting-types/).
+
+| | `remote` (default) | `plugin` |
+|---|---|---|
+| Backend | Own process (`<Pascal>.Api`), own port, own deploy | Class library (`<Pascal>.Plugin`) loaded in-process by the shared **Module Host** (`PluginHost.Api`, `:5300`) |
+| Gateway target | `artifactApiUrl` (or manifest `service.baseUrl`) | Module Host, downstream prefixed `/plugins/<name>` |
+| Frontend | `frontend.remoteUrl` (required) | Empty `remoteUrl` → served from the package `web/` at `/plugin-assets/<name>/<version>/` |
+| Register | `POST /api/v1/platform/modules` (JSON) or package upload | Package upload only (`POST /api/v1/platform/modules/package`) |
+| Wiring | sln, AppHost, compose, tests | sln + tests only (no AppHost process, no compose service) |
+| Isolation | Process | Collectible `AssemblyLoadContext` per `(module, version)`, per-tenant shell |
+
+### 12.1 Plugin authoring
+
+```bash
+node tools/create-module/create-module.mjs new reports --type plugin -y
+```
+
+Reference: [`src/Modules/Sample3/Sample3.Plugin`](../src/Modules/Sample3/Sample3.Plugin) + [`modules/sample3/`](../modules/sample3/).
+
+- Target `net8.0`, `EnableDynamicLoading=true`, `FrameworkReference Microsoft.AspNetCore.App`.
+- Reference `ModulePlatform.Plugin.Abstractions` and `SharedKernel` with
+  `Private="false" ExcludeAssets="runtime"`. The host provides them, and they must not be shipped in the package.
+- Implement exactly one public `IModulePlugin` with a parameterless constructor (or set `plugin.entryType`):
+
+```csharp
+public sealed class ReportsPlugin : IModulePlugin
+{
+    public void ConfigureServices(IServiceCollection services, PluginContext context) { }
+    public void MapEndpoints(IEndpointRouteBuilder endpoints, PluginContext context) => ModuleEndpoints.Map(endpoints);
+    // optional: Task MigrateAsync(PluginMigration migration, IServiceProvider services, CancellationToken ct)
+}
+```
+
+- Endpoints are mapped relative to `/plugins/<name>`. Their paths must match the `api.routes[].downstream`
+  templates (for example `/api/v1/{rest}`).
+- The runtime DI container already provides `IConfiguration`, `ILogger<T>`, `IHttpClientFactory`
+  (named `platform` and `auth`), `IHostEnvironment` and a plugin-private `IMemoryCache`.
+- One runtime serves **all** tenants on that version. Treat the tenant as request data
+  (`ModuleGuards.TenantId(ctx)`). Keep no cross-tenant mutable state in singletons or statics, because statics do not survive unload.
+- Guard endpoints exactly like remote modules: `.RequireAuthorization()` + `RequireTenantAsync` / `RequirePermissionAsync`.
+
+Plugin manifest additions (contract: [manifest-v1-types](../../specs/002-module-hosting-types/contracts/manifest-v1-types.md)):
+
+```yaml
+module:
+  type: plugin
+plugin:
+  assembly: Reports.Plugin.dll          # required, ^[A-Za-z0-9][A-Za-z0-9._-]*\.dll$
+  entryType: Reports.Plugin.ReportsPlugin   # optional
+  contract: "1.0"                       # optional, only 1.0 is supported
+frontend:
+  remoteUrl: ""                         # served by the Module Host
+# service.baseUrl must NOT be set for plugins
+```
+
+### 12.2 Packaging and publishing
+
+```bash
+node tools/create-module/create-module.mjs package reports   # -> dist/modules/reports-1.0.0.zip
+node tools/create-module/create-module.mjs publish reports   # multipart upload
+node tools/create-module/create-module.mjs install reports --tenant <TENANT_ID>
+```
+
+Package layout: allowed roots are `manifest.yml` (required), `README.md`, `plugin/` and `web/`.
+For a plugin with routes and an empty `remoteUrl`, the package must include `plugin/<assembly>` and `web/assets/remoteEntry.js`.
+The platform rejects unsafe packages with `400 PACKAGE_INVALID` and lists each failing entry. Rejected cases:
+absolute paths, drive letters, `..`, unknown roots, a missing manifest or assembly, and packages over the limits.
+
+| Setting (Platform) | Default |
+|---|---|
+| `ModulePackages:Root` | `./module-packages` |
+| `ModulePackages:MaxPackageBytes` | 50 MB (`413` above) |
+| `ModulePackages:MaxUncompressedBytes` | 200 MB |
+| `ModulePackages:MaxEntries` | 2,000 |
+
+Versions stay immutable: re-publishing the same version is rejected. Remote modules can also be uploaded as
+a package (`publish <name> --package [file]`).
+
+### 12.3 Module Host and tenant shells
+
+- **Runtime** = one loaded `(module, version)`. It is created on the first tenant that installs the version.
+  The package is downloaded from the Platform, its SHA-256 is verified, and it is extracted to `PluginHost:CacheRoot/<id>/<version>`.
+  When the last tenant leaves, the runtime is drained (`PluginHost:DrainTimeoutSeconds`, 30) and unloaded.
+- **Tenant shell** = an immutable per-tenant map `module -> (version, enabled)`. Changes always load first and swap after.
+  A failed load (`422 PLUGIN_LOAD_FAILED`) therefore leaves the tenant on its previous version. Changes for one tenant never affect another.
+- Request gating on `/plugins/<name>/...`: `401` no or invalid token · `403 FORBIDDEN_TENANT` (no tenant claim, or `X-Tenant-Id` mismatch) ·
+  `404 UNKNOWN_MODULE_ROUTE` (not installed for the tenant) · `503 MODULE_DISABLED`.
+- Lifecycle ordering (Platform): enable activates the host **before** the gateway route is published. Disable and
+  uninstall remove the gateway route **before** the host deactivates. Upgrade calls host `migrate` (new version loaded),
+  then activates the new version for that tenant only, so tenants can run different versions side by side.
+- **Reconcile**: at startup, and every `PluginHost:ReconcileIntervalMinutes` (5), the host rebuilds its shells from
+  `GET /internal/plugin-host/states`. Restarting the host or wiping its cache self-heals.
+- Operator view: `GET :5300/internal/plugins` with `X-Internal-Key` lists runtimes, in-flight counts and tenants.
+
+### 12.4 Remote network zones
+
+`service.network` (remote only): `same-cluster` (default) | `cross-cluster` | `public`. `service.baseUrl` is the
+default `artifactApiUrl` for both JSON and package publish (an explicit `artifactApiUrl` wins).
+
+| `service.network` | `service.baseUrl` / `artifactApiUrl` in Development | outside Development |
+|---|---|---|
+| `same-cluster` | http or https | http or https |
+| `cross-cluster` | http or https | **https required** |
+| `public` | http or https | **https required** |
+
+Invalid zone → `400 VALIDATION_ERROR` on `service.network`. An http URL for a non-local zone outside
+Development → `400 VALIDATION_ERROR` on `service.baseUrl`.
+
+### 12.5 Adding a new module type
+
+Register an `IModuleTypeRules` in `ModuleTypeRegistry` (manifest validation) and an `IModuleHostingStrategy`
+in `ModuleHostingRegistry` (gateway target, activate/deactivate, migrate). `ModuleLifecycleService` needs no change.
+See `Third_module_type_installs_and_uninstalls_without_lifecycle_changes` in
+`tests/Platform.Application.Tests/ModuleHostingTests.cs`.
+
+### 12.6 Plugin troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Publish `400` `Plugin modules must be registered by package upload` | JSON publish of a `type: plugin` manifest | Use `create-module publish <name>` (uploads the package) |
+| `400 PACKAGE_INVALID` | Unsafe or incomplete zip | Read `details[].field` (entry path) and rebuild with `create-module package` |
+| Install fails, `PLUGIN_LOAD_FAILED` | Missing dependency, wrong `entryType`, unsupported `plugin.contract`, or hash mismatch | Check the Module Host logs. Make sure host-provided assemblies are referenced with `Private="false"` |
+| `PLUGIN_HOST_UNAVAILABLE` (502, retryable) | Module Host cannot download the package from the Platform | Check `Platform:BaseUrl` and `InternalApi:Key` on the host (same key as the Platform) |
+| Page "Module unavailable" for a plugin | `PluginHost:PublicBaseUrl` on the Platform not reachable from the browser | Set it to the browser URL of `:5300`. `curl -I <url>/plugin-assets/<name>/<version>/assets/remoteEntry.js` |
+| Old version still served after upgrade | In-flight requests draining | Wait `DrainTimeoutSeconds`. `GET /internal/plugins` shows both runtimes until then |

@@ -8,3 +8,5 @@ node_modules/
 .DS_Store
 *.tmp
 gateway-modules.json
+module-packages/
+plugin-cache/

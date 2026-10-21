@@ -4,7 +4,7 @@ End-to-end local setup for `module_as_plugin/`: start the app, create the
 database + apply migrations (with platform seed data), then create 1 sample
 tenant with seed data.
 
-Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`,
+Ports: gateway `:5100`, platform `:5121`, auth `:5122`, Module Host `:5300`, loyalty `:5201`,
 shell `:5173`, loyalty remote `:5174`, tenant-admin `:5175`, postgres
 `:5432` (`:5433` standalone container / `:5434` Aspire on this machine —
 see below).
@@ -27,7 +27,8 @@ dotnet run --project src/Aspire/ModulePlatform.AppHost
 ```
 
 This starts Aspire Postgres on `:5434` (volume `module-platform-pgdata`),
-all 4 APIs on their fixed ports, the 3 frontends, and the Aspire dashboard.
+all 4 APIs on their fixed ports, the Module Host (`:5300`, plugin modules), the 3
+frontends, and the Aspire dashboard.
 Migrations + dev seed (`admin@local`, demo tenant) apply automatically;
 `TenantStores` is pre-wired so tenant provisioning works with no extra env.
 Then continue at §3 (use `TENANT_ID` from the created tenant).
@@ -78,11 +79,31 @@ cd apps/tenant-admin && npm install && npm run dev   # :5175 tenant backoffice
 
 Frontends proxy `/api/v1 -> :5100`.
 
+Module Host (only needed for `module.type: plugin` modules such as `sample3`):
+
+```bash
+dotnet run --project src/PluginHost/PluginHost.Api   # :5300
+```
+
+| Service | Setting | Default / note |
+|---|---|---|
+| Module Host | `Platform__BaseUrl`, `Auth__BaseUrl` | `http://localhost:5121` / `:5122` |
+| Module Host | `InternalApi__Key`, `Jwt__SecretKey` | must match Platform/Auth (required outside Development) |
+| Module Host | `PluginHost__CacheRoot` | `./plugin-cache` (extracted packages; safe to wipe, rebuilt by reconcile) |
+| Module Host | `PluginHost__DrainTimeoutSeconds`, `PluginHost__ReconcileIntervalMinutes` | `30`, `5` |
+| Platform | `PluginHost__BaseUrl` | `http://localhost:5300` (cluster URL, used by Platform + Gateway) |
+| Platform | `PluginHost__PublicBaseUrl` | `http://localhost:5300` (browser URL for plugin UI assets) |
+| Platform | `ModulePackages__Root` | `./module-packages` (uploaded zips; persist this) |
+
+Compose adds a `plugin-host` service (`:5300`) with volumes `pluginpackages` (Platform) and
+`plugincache` (host); set `PLUGIN_HOST_PUBLIC_URL` if the browser reaches it elsewhere.
+
 Health check:
 
 ```bash
 curl localhost:5121/healthz; curl localhost:5122/healthz
 curl localhost:5100/healthz; curl localhost:5201/healthz
+curl localhost:5300/healthz
 ```
 
 ## 2. Database creation + migrations + platform seed data

@@ -104,7 +104,7 @@ public static class InternalEndpoints
     // catalog. A tenant entry exists while the install row exists; enabled only
     // when Installed/Installing (upgrade) and Enabled. X-Internal-Key required.
     // NOT routed by the gateway.
-    app.MapGet("/internal/gateway/module-states", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg) =>
+    app.MapGet("/internal/gateway/module-states", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg, ModuleHostingCoordinator hosting) =>
     {
         if (!IsInternalCaller(ctx, cfg))
             return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid internal key.", 401);
@@ -119,10 +119,12 @@ public static class InternalEndpoints
             {
                 ManifestFile? m = null;
                 try { m = ManifestParser.Parse(v.ManifestYaml); } catch { /* unparseable manifest → no routes */ }
+                // Target per hosting strategy (remote: artifact URL; plugin: Module Host).
+                var target = m is null ? null : hosting.Target(m, EfLifecyclePorts.ToRef(v));
                 return new
                 {
-                    version = v.Version, baseUrl = v.ArtifactApiUrl,
-                    upstreams = m is null ? Array.Empty<object>() : EfLifecyclePorts.GatewayUpstreams(m),
+                    version = v.Version, baseUrl = target?.BaseUrl ?? v.ArtifactApiUrl,
+                    upstreams = target?.Upstreams ?? Array.Empty<GatewayUpstream>(),
                 };
             }).ToList(),
             tenants = g.Select(i => new
@@ -132,6 +134,44 @@ public static class InternalEndpoints
             }).ToList(),
         }).ToList();
         return Results.Json(new { data = new { modules } });
+    });
+
+    // Module Host package download (FR-007/FR-017): the host verifies X-Package-Sha256 against
+    // the value pushed with the activation before loading. NOT routed by the gateway.
+    app.MapGet("/internal/modules/{id}/versions/{version}/package", async (
+        CatalogDbContext db, HttpContext ctx, IConfiguration cfg, ModulePackageStore store, string id, string version) =>
+    {
+        if (!IsInternalCaller(ctx, cfg))
+            return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid internal key.", 401);
+        var v = await db.ModuleVersions.AsNoTracking().FirstOrDefaultAsync(x => x.ModuleId == id && x.Version == version);
+        var stream = v is null ? null : store.OpenRead(v.PackagePath);
+        if (stream is null)
+            return ApiErrors.Problem(ErrorCodes.UnknownVersion, $"No package for '{id}@{version}'.", 404);
+        ctx.Response.Headers["X-Package-Sha256"] = v!.PackageSha256;
+        return Results.Stream(stream, "application/zip", $"{id}-{version}.zip");
+    });
+
+    // Module Host reconcile source (FR-021): every (plugin module, version) used by an install
+    // row, with tenants; enabled rule identical to the gateway snapshot. NOT routed by the gateway.
+    app.MapGet("/internal/plugin-host/states", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg) =>
+    {
+        if (!IsInternalCaller(ctx, cfg))
+            return ApiErrors.Problem(ErrorCodes.Unauthorized, "Invalid internal key.", 401);
+        var rows = await (
+            from i in db.Installs.AsNoTracking()
+            join v in db.ModuleVersions.AsNoTracking() on new { i.ModuleId, i.Version } equals new { v.ModuleId, v.Version }
+            where i.State != InstallState.NotInstalled && v.ModuleType == ModuleTypeNames.Plugin
+            select new { i.ModuleId, i.Version, v.PackageSha256, i.TenantId, i.Enabled, i.State }).ToListAsync();
+        var plugins = rows.GroupBy(r => new { r.ModuleId, r.Version, r.PackageSha256 }).Select(g => new
+        {
+            moduleId = g.Key.ModuleId, version = g.Key.Version, packageSha256 = g.Key.PackageSha256,
+            tenants = g.Select(r => new
+            {
+                tenantId = r.TenantId,
+                enabled = r.Enabled && (r.State is InstallState.Installed or InstallState.Installing),
+            }).ToList(),
+        }).ToList();
+        return Results.Json(new { data = new { plugins } });
     });
     }
 

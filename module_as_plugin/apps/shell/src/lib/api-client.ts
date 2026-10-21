@@ -30,3 +30,24 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return (body?.data ?? body) as T;
 }
+
+// Multipart upload: same auth/envelope/error handling as api(), but no Content-Type
+// header so the browser sets the multipart boundary itself.
+export async function apiUpload<T>(path: string, formData: FormData, init?: Omit<RequestInit, 'body'>): Promise<T> {
+  const res = await fetch(`${GATEWAY_BASE}${path}`, {
+    method: 'POST',
+    ...init,
+    body: formData,
+    headers: { ...authHeaders(), ...tenantHeaders(), ...(init?.headers ?? {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const fallback: ApiError =
+      res.status === 413
+        ? { code: 'PAYLOAD_TOO_LARGE', message: 'Package is too large' }
+        : { code: 'UNKNOWN', message: res.statusText || `Request failed (${res.status})` };
+    const err: ApiError = body?.error ?? fallback;
+    throw Object.assign(new Error(err.message), { code: err.code, details: err.details, status: res.status });
+  }
+  return (body?.data ?? body) as T;
+}

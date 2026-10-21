@@ -1,4 +1,4 @@
-import { api } from './api-client';
+import { api, apiUpload } from './api-client';
 
 // Bootstrap payload (SR-6b): Vite-only fields for installed+enabled modules.
 // Shell registers Federation remotes + builds nav from this — never manifest.yml (R10).
@@ -66,6 +66,13 @@ export interface RegistryModule {
   versions: string[]; // newest first
   dependencies: { name: string; versionRange: string }[];
   installedTenantCount: number;
+  type?: ModuleType; // type of the latest version; missing on older servers → 'remote'
+}
+
+export type ModuleType = 'remote' | 'plugin';
+
+export function moduleType(m: { type?: string | null }): ModuleType {
+  return m.type === 'plugin' ? 'plugin' : 'remote';
 }
 
 export type ModuleInstallState = 'INSTALLING' | 'INSTALLED' | 'DISABLED' | 'FAILED' | 'UNINSTALLING';
@@ -118,6 +125,34 @@ export interface RegisterModuleBody {
 
 export function registerModule(body: RegisterModuleBody): Promise<{ id: string; version: string }> {
   return api<{ id: string; version: string }>('/api/v1/platform/modules', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export interface RegisterPackageResult {
+  id: string;
+  version: string;
+  type: ModuleType;
+  packageSha256: string;
+}
+
+export interface RegisterPackageBody {
+  file: File;
+  artifactApiUrl?: string;
+  artifactRemoteUrl?: string;
+}
+
+// Registers a module version from a .zip package (remote or plugin) via multipart upload.
+export async function registerModulePackage(body: RegisterPackageBody): Promise<RegisterPackageResult> {
+  const form = new FormData();
+  form.append('package', body.file, body.file.name);
+  if (body.artifactApiUrl) form.append('artifactApiUrl', body.artifactApiUrl);
+  if (body.artifactRemoteUrl) form.append('artifactRemoteUrl', body.artifactRemoteUrl);
+  const r = await apiUpload<Partial<RegisterPackageResult>>('/api/v1/platform/modules/package', form);
+  return {
+    id: String(r?.id ?? ''),
+    version: String(r?.version ?? ''),
+    type: moduleType({ type: r?.type }),
+    packageSha256: String(r?.packageSha256 ?? ''),
+  };
 }
 
 export function installToTenant(tenantId: string, moduleId: string, version?: string): Promise<unknown> {

@@ -1,5 +1,5 @@
 import { Download } from 'lucide-react';
-import type { RegistryModule } from '../lib/bootstrap';
+import { moduleType, type RegistryModule } from '../lib/bootstrap';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ export function RegistryModuleCard({
 }) {
   const deprecated = module.status === 'Deprecated';
   const count = module.installedTenantCount;
+  const type = moduleType(module);
 
   return (
     <Card>
@@ -27,6 +28,12 @@ export function RegistryModuleCard({
             <CardTitle className="flex items-center gap-2 text-base">
               {module.displayName}
               {module.latestVersion && <Badge variant="secondary">v{module.latestVersion}</Badge>}
+              <Badge
+                variant={type === 'plugin' ? 'default' : 'outline'}
+                title={type === 'plugin' ? 'Plugin module (hosted in-process by the platform)' : 'Remote module (deployed service)'}
+              >
+                {type}
+              </Badge>
             </CardTitle>
             <CardDescription className="mt-1">
               {module.description} · Owner: {module.owner}

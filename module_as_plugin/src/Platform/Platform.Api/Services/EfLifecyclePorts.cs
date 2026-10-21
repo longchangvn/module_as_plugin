@@ -10,8 +10,22 @@ namespace Platform.Api.Services;
 // gateway routes via Gateway.Api internal API (source=module-install),
 // tenant seed via Auth.Api internal API (idempotent upserts). Failures throw
 // so the lifecycle marks the install FAILED per SR-5 (rollback of that module).
-public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory http, IConfiguration cfg, ILogger<EfLifecyclePorts> log) : IModuleLifecyclePorts
+// Type-specific behaviour (gateway target, per-tenant activation, migrate) is delegated to the
+// version's hosting strategy through ModuleHostingCoordinator (remote | plugin | ...).
+public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory http, IConfiguration cfg,
+    ModuleHostingCoordinator hosting, ILogger<EfLifecyclePorts> log) : IModuleLifecyclePorts
 {
+    public static ModuleVersionRef ToRef(ModuleVersion v) =>
+        new(v.ModuleId, v.Version, v.ModuleType, v.ArtifactApiUrl, v.PackageSha256);
+
+    private async Task<ModuleVersionRef> VersionRefAsync(string moduleId, string version, CancellationToken ct)
+    {
+        var v = await db.ModuleVersions.AsNoTracking().FirstOrDefaultAsync(x => x.ModuleId == moduleId && x.Version == version, ct);
+        return v is null
+            ? throw new InvalidOperationException($"Unknown module version {moduleId}@{version}.")
+            : ToRef(v);
+    }
+
     public async Task<TenantView?> GetTenantAsync(string tenantId, CancellationToken ct)
     {
         var t = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(x => x.Id == tenantId, ct);
@@ -63,46 +77,32 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
     public async Task RunMigrateHookAsync(string moduleId, string fromVersion, string toVersion, CancellationToken ct)
     {
         if (fromVersion == toVersion) return;
-        var hookBase = (await db.ModuleVersions.AsNoTracking()
-            .Where(x => x.ModuleId == moduleId && x.Version == toVersion)
-            .Select(x => x.ArtifactApiUrl).FirstOrDefaultAsync(ct))?.TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(hookBase))
-        {
-            log.LogInformation("No artifactApiUrl for {module} — migrate hook skipped", moduleId);
-            return;
-        }
-        using var client = http.CreateClient("lifecycle");
-        using var res = await client.PostAsJsonAsync($"{hookBase}/internal/migrate",
-            new { fromVersion, toVersion }, ct);
-        if (!res.IsSuccessStatusCode)
-        {
-            var body = await res.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"Migrate hook rejected ({(int)res.StatusCode}): {body}");
-        }
+        await hosting.MigrateAsync(await VersionRefAsync(moduleId, toVersion, ct), fromVersion, ct);
     }
 
     public async Task ApplyGatewayRoutesAsync(string tenantId, ManifestFile manifest, bool enabled, CancellationToken ct)
     {
-        // A3 fix: the gateway must not guess the module's downstream — send the
-        // published artifact API base URL; falls back to registry/config inside
-        // the gateway when the artifact URL is absent.
-        var artifactApiUrl = await db.ModuleVersions.AsNoTracking()
-            .Where(x => x.ModuleId == manifest.Module.Name && x.Version == manifest.Module.Version)
-            .Select(x => x.ArtifactApiUrl).FirstOrDefaultAsync(ct);
-        // R-GW1/R-GW2: per-tenant state on the X-Internal-Key protected internal API.
-        using var res = await SendGatewayAsync(HttpMethod.Put, manifest.Module.Name, tenantId,
-            JsonContent.Create(new
-            {
-                enabled,
-                version = manifest.Module.Version,
-                baseUrl = artifactApiUrl,
-                upstreams = GatewayUpstreams(manifest),
-            }), ct);
-        if (!res.IsSuccessStatusCode)
+        // A3 fix: the gateway must not guess the module's downstream — the hosting strategy
+        // supplies it (remote: published artifact URL; plugin: Module Host). FR-018 ordering:
+        // backend activated before an enabled route is published.
+        var version = await VersionRefAsync(manifest.Module.Name, manifest.Module.Version, ct);
+        await hosting.ApplyAsync(tenantId, manifest, version, enabled, async target =>
         {
-            var body = await res.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"Gateway apply failed ({(int)res.StatusCode}): {body}");
-        }
+            // R-GW1/R-GW2: per-tenant state on the X-Internal-Key protected internal API.
+            using var res = await SendGatewayAsync(HttpMethod.Put, manifest.Module.Name, tenantId,
+                JsonContent.Create(new
+                {
+                    enabled,
+                    version = manifest.Module.Version,
+                    baseUrl = target.BaseUrl,
+                    upstreams = target.Upstreams,
+                }), ct);
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException($"Gateway apply failed ({(int)res.StatusCode}): {body}");
+            }
+        }, ct);
         // Platform-level rule audit (never provisioned into tenant databases).
         foreach (var r in manifest.Api.Routes)
         {
@@ -128,17 +128,22 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
             }
         }
         await db.SaveChangesAsync(ct);
-        log.LogInformation("Gateway routes applied module={module} enabled={enabled}", manifest.Module.Name, enabled);
+        log.LogInformation("Gateway routes applied module={module} type={type} enabled={enabled}", manifest.Module.Name, version.ModuleType, enabled);
     }
 
     public async Task RemoveModuleRoutesAsync(string tenantId, ManifestFile manifest, CancellationToken ct)
     {
-        using var res = await SendGatewayAsync(HttpMethod.Delete, manifest.Module.Name, tenantId, null, ct);
-        if (!res.IsSuccessStatusCode)
+        var version = await VersionRefAsync(manifest.Module.Name, manifest.Module.Version, ct);
+        var warning = await hosting.RemoveAsync(tenantId, version, async () =>
         {
-            var body = await res.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"Gateway remove failed ({(int)res.StatusCode}): {body}");
-        }
+            using var res = await SendGatewayAsync(HttpMethod.Delete, manifest.Module.Name, tenantId, null, ct);
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException($"Gateway remove failed ({(int)res.StatusCode}): {body}");
+            }
+        }, ct);
+        if (warning is not null) log.LogWarning("{warning} (left to reconcile)", warning);
         // P3: the platform rule audit stays while any other tenant still has the module.
         var othersInstalled = await db.Installs.AnyAsync(
             x => x.ModuleId == manifest.Module.Name && x.TenantId != tenantId && x.State != InstallState.NotInstalled, ct);
@@ -146,13 +151,6 @@ public sealed class EfLifecyclePorts(CatalogDbContext db, IHttpClientFactory htt
         db.GatewayRules.RemoveRange(db.GatewayRules.Where(x => x.ModuleId == manifest.Module.Name));
         await db.SaveChangesAsync(ct);
     }
-
-    public static object[] GatewayUpstreams(ManifestFile manifest) =>
-        manifest.Api.Routes.Select(r => (object)new
-        {
-            upstream = r.Upstream, downstream = r.Downstream,
-            methods = r.Methods.ToArray(),
-        }).ToArray();
 
     private async Task<HttpResponseMessage> SendGatewayAsync(HttpMethod method, string moduleId, string tenantId, HttpContent? content, CancellationToken ct)
     {

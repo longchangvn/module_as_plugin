@@ -4,6 +4,7 @@
 // Guide: docs/module-developer-guide.md
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,9 @@ const DIGITS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', '
 const BASE_PORTS = [5100, 5121, 5122, 5173, 5174, 5175, 5176, 5177, 5201, 5202, 5203, 5432, 5433, 5434];
 const API_PORT_START = 5204;
 const WEB_PORT_START = 5178;
+const TYPES = ['remote', 'plugin'];
+// Assemblies the Module Host provides (plus everything only they pull in, see stripHostShared).
+const HOST_SHARED = ['ModulePlatform.Plugin.Abstractions', 'SharedKernel'];
 
 const HELP = `create-module — Module Platform module scaffolder
 
@@ -23,12 +27,14 @@ Usage: ${CLI} <command> [options]
 
 Commands:
   new <name>           Scaffold API + federation remote + manifest + parity test, then wire it in
+    --type remote|plugin   default: remote (own API process: sln/AppHost/compose/tests wiring);
+                           plugin = class library loaded by the Module Host (:5300), sln/tests wiring only
     --display-name <text>  default: Title Case of name
     --description <text>   default: "<Display Name> module."
     --owner <email>        default: platform-team@company.com
     --category <slug>      default: ops
     --icon <name>          default: box
-    --api-port <n>         default: next free port >= ${API_PORT_START}
+    --api-port <n>         default: next free port >= ${API_PORT_START} (ignored for plugins)
     --web-port <n>         default: next free port >= ${WEB_PORT_START}
     --perm-prefix <CODE>   default: derived from name (sample3 -> SAMPLE_THREE)
     --menu-order <n>       default: 50
@@ -36,15 +42,23 @@ Commands:
     --skip-install         skip npm install in modules/<name>/web
     --dry-run              print the plan, write nothing
     -y, --yes              no interactive prompts
-  list                 List modules with their API/web ports
-  publish <name>       Publish manifest to the registry (POST /api/v1/platform/modules)
+  list                 List modules with their type and API/web ports
+  package <name>       Build a module package (default dist/modules/<name>-<version>.zip)
+                         remote: manifest.yml + README.md
+                         plugin: + plugin/ (dotnet publish -c Release, host-provided assemblies removed)
+                                 + web/ (npm run build output)
+    --out <file>           output zip
+    --skip-build           plugin: dotnet publish --no-build, reuse existing web/dist
+  publish <name>       Publish to the registry. remote: manifest JSON (POST /api/v1/platform/modules);
+                       plugin: always a package upload (POST /api/v1/platform/modules/package)
+    --package [file]       upload a package (built first unless a file is given)
     --gateway <url>        default http://localhost:5100 (env MODULE_GATEWAY)
     --token <jwt>          platform Admin JWT (env PLATFORM_TOKEN), or:
     --email <email>        default admin@local, with
     --password <pw>        (env PLATFORM_PASSWORD) to log in
-    --api-url <url>        default http://localhost:<module API port>
+    --api-url <url>        remote only; default service.baseUrl, else http://localhost:<module API port>
   install <name> --tenant <id> [--version x.y.z]   Install for a tenant (same auth options)
-  remove <name> [-y]   Delete the module's generated folders and undo the wiring
+  remove <name> [-y]   Delete the module's generated folders and undo the wiring (remote or plugin)
   pack [--out <file>]  Zip this starter kit for distribution (default dist/create-module-kit.zip)
   help                 Show this help
 `;
@@ -59,7 +73,8 @@ const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
 function parseArgs(argv) {
   const opts = { _: [] };
-  const flags = new Set(['no-wire', 'skip-install', 'dry-run', 'yes', 'help']);
+  const flags = new Set(['no-wire', 'skip-install', 'skip-build', 'dry-run', 'yes', 'help']);
+  const optionalValue = new Set(['package']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-y') opts.yes = true;
@@ -67,6 +82,7 @@ function parseArgs(argv) {
     else if (a.startsWith('--')) {
       const [k, inline] = a.slice(2).split(/=(.*)/s, 2);
       if (flags.has(k)) opts[camel(k)] = true;
+      else if (optionalValue.has(k) && inline === undefined && (argv[i + 1] === undefined || argv[i + 1].startsWith('-'))) opts[camel(k)] = true;
       else {
         const v = inline ?? argv[++i];
         if (v === undefined) fail(`--${k} needs a value`);
@@ -163,6 +179,20 @@ function apiPortOf(apiDir) {
   return ls && exists(ls) ? read(ls).match(/localhost:(\d+)/)?.[1] ?? null : null;
 }
 
+// Fields of the top-level `module:` block (module.type absent = remote).
+const moduleBlock = (m) => m.match(/^module:[^\n]*\n((?:[ \t]+[^\n]*\n?|[ \t]*\n)*)/m)?.[1] ?? '';
+const moduleType = (m) => (moduleBlock(m).match(/^[ \t]+type:[ \t]*["']?([A-Za-z-]+)/m)?.[1] ?? 'remote').toLowerCase();
+const moduleVersion = (m) => moduleBlock(m).match(/^[ \t]+version:[ \t]*["']?([^\s"']+)/m)?.[1];
+
+function loadManifest(root, name) {
+  const mf = path.join(root, 'modules', name, 'manifest.yml');
+  if (!exists(mf)) fail(`modules/${name}/manifest.yml not found`);
+  const text = read(mf);
+  const type = moduleType(text);
+  if (!TYPES.includes(type)) fail(`unknown module.type "${type}" in modules/${name}/manifest.yml`);
+  return { file: mf, text, type, version: moduleVersion(text) ?? fail(`module.version missing in modules/${name}/manifest.yml`) };
+}
+
 // ---------- templating ----------
 function render(text, tokens) {
   for (const key of Object.keys(tokens).sort((a, b) => b.length - a.length)) text = text.replaceAll(`__${key}__`, tokens[key]);
@@ -170,16 +200,24 @@ function render(text, tokens) {
 }
 
 // *.template files are stored with a suffix so IDEs don't restore/build them in place.
+// Plugins: templates/plugin replaces templates/api; templates/module-plugin overrides files of templates/module.
+const PLUGIN_SKIP = new Set(['web/Dockerfile']);
 function plan(root, t) {
+  const plugin = t.TYPE === 'plugin';
   const targets = [
-    ['api', path.join(root, 'src', 'Modules', t.PASCAL, `${t.PASCAL}.Api`)],
+    [plugin ? 'plugin' : 'api', path.join(root, 'src', 'Modules', t.PASCAL, t.PROJECT)],
     ['module', path.join(root, 'modules', t.MODULE_NAME)],
     ['test', path.join(root, 'tests', 'SharedKernel.Tests', 'Modules')],
   ];
-  return targets.flatMap(([src, dest]) => walk(path.join(TEMPLATES, src), () => true).map((f) => ({
-    from: f,
-    to: path.join(dest, render(path.relative(path.join(TEMPLATES, src), f), t).replace(/\.template$/, '')),
-  })));
+  return targets.flatMap(([src, dest]) => walk(path.join(TEMPLATES, src), () => true).flatMap((f) => {
+    const r = path.relative(path.join(TEMPLATES, src), f);
+    if (plugin && src === 'module') {
+      if (PLUGIN_SKIP.has(r.split(path.sep).join('/'))) return [];
+      const override = path.join(TEMPLATES, 'module-plugin', r);
+      if (exists(override)) f = override;
+    }
+    return [{ from: f, to: path.join(dest, render(r, t).replace(/\.template$/, '')) }];
+  }));
 }
 
 // ---------- wiring (idempotent, marker-delimited where possible) ----------
@@ -223,13 +261,24 @@ function removeBlock(file, name, c) {
 
 function wire(root, t) {
   const steps = [];
-  const csprojRel = path.join('src', 'Modules', t.PASCAL, `${t.PASCAL}.Api`, `${t.PASCAL}.Api.csproj`);
+  const csprojRel = path.join('src', 'Modules', t.PASCAL, t.PROJECT, `${t.PROJECT}.csproj`);
 
   // 1. solution
   const sln = run('dotnet', ['sln', 'ModulePlatform.sln', 'add', csprojRel], root, { inherit: false });
   steps.push(sln.ok ? 'ModulePlatform.sln: project added'
     : `ModulePlatform.sln: SKIPPED (${sln.error ? 'dotnet not found' : (sln.stderr || sln.stdout || '').trim()}) -> run: dotnet sln ModulePlatform.sln add ${csprojRel}`);
 
+  // 2-3. own API process (remote only; plugins are served by the shared Module Host)
+  if (t.TYPE === 'remote') wireHosting(root, t, steps);
+
+  // 4. tests
+  addProjectReference(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'),
+    `..\\..\\src\\Modules\\${t.PASCAL}\\${t.PROJECT}\\${t.PROJECT}.csproj`);
+  steps.push('SharedKernel.Tests.csproj: ProjectReference added');
+  return steps;
+}
+
+function wireHosting(root, t, steps) {
   // 2. Aspire AppHost
   const appHostDir = path.join(root, 'src', 'Aspire', 'ModulePlatform.AppHost');
   addProjectReference(path.join(appHostDir, 'ModulePlatform.AppHost.csproj'), `..\\..\\Modules\\${t.PASCAL}\\${t.PASCAL}.Api\\${t.PASCAL}.Api.csproj`);
@@ -288,12 +337,6 @@ ${pe}
 `, composePath));
   }
   steps.push('docker-compose.yml: services added');
-
-  // 4. tests
-  addProjectReference(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'),
-    `..\\..\\src\\Modules\\${t.PASCAL}\\${t.PASCAL}.Api\\${t.PASCAL}.Api.csproj`);
-  steps.push('SharedKernel.Tests.csproj: ProjectReference added');
-  return steps;
 }
 
 // ---------- commands ----------
@@ -311,14 +354,18 @@ async function cmdNew(root, opts) {
   let displayName = opts.displayName ?? toTitle(name);
   let description = opts.description;
   let owner = opts.owner ?? 'platform-team@company.com';
+  let type = opts.type ?? 'remote';
   if (!opts.yes && process.stdin.isTTY && !opts.dryRun) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    if (!opts.type) type = await prompt(rl, `Module type (${TYPES.join('|')})`, type);
     if (!opts.displayName) displayName = await prompt(rl, 'Display name', displayName);
     if (!opts.description) description = await prompt(rl, 'Description', `${displayName} module.`);
     if (!opts.owner) owner = await prompt(rl, 'Owner email', owner);
     rl.close();
   }
   description ??= `${displayName} module.`;
+  if (!TYPES.includes(type)) fail(`--type must be one of: ${TYPES.join(', ')}`);
+  const plugin = type === 'plugin';
 
   if (!/^[A-Za-z0-9][A-Za-z0-9 ._()-]{2,99}$/.test(displayName))
     fail('display name must be 3-100 chars: letters, digits, space . _ ( ) -');
@@ -344,29 +391,33 @@ async function cmdNew(root, opts) {
     if (used.has(p)) fail(`port ${p} is already used in this repo`);
     return p;
   };
-  const apiPort = port('apiPort', API_PORT_START);
-  used.add(apiPort);
+  if (plugin && opts.apiPort !== undefined) log('note: --api-port is ignored for plugin modules (served by the Module Host).');
+  const apiPort = plugin ? null : port('apiPort', API_PORT_START);
+  if (apiPort) used.add(apiPort);
   const webPort = port('webPort', WEB_PORT_START);
   const menuOrder = Number(opts.menuOrder ?? 50);
   if (!Number.isInteger(menuOrder)) fail('--menu-order must be an integer');
 
+  const project = `${pascal}.${plugin ? 'Plugin' : 'Api'}`;
   const tokens = {
     MODULE_NAME: name, PASCAL: pascal, CAMEL: toCamel(name), DISPLAY_NAME: displayName,
     DESCRIPTION: description, DESCRIPTION_YAML: JSON.stringify(description), OWNER: owner,
-    CATEGORY: category, ICON: icon, API_PORT: String(apiPort), WEB_PORT: String(webPort),
+    CATEGORY: category, ICON: icon, API_PORT: String(apiPort ?? ''), WEB_PORT: String(webPort),
     SCOPE: scope, PERM: perm, CSS: `mod-${name}`, MENU_ORDER: String(menuOrder),
+    TYPE: type, PROJECT: project,
   };
   const files = plan(root, tokens);
   const clash = files.find((f) => exists(f.to));
   if (clash) fail(`${rel(root, clash.to)} already exists`);
 
-  log(`Module      : ${name} (${displayName})`);
-  log(`Project     : ${pascal}.Api   scope: ${scope}   permissions: ${perm}_DATA_VIEW, ${perm}_DATA_PROTECTED`);
-  log(`Ports       : API ${apiPort}, remote ${webPort}`);
+  log(`Module      : ${name} (${displayName})${plugin ? '   type: plugin' : ''}`);
+  log(`Project     : ${project}   scope: ${scope}   permissions: ${perm}_DATA_VIEW, ${perm}_DATA_PROTECTED`);
+  log(plugin ? `Ports       : API via Module Host :5300 (/plugins/${name}), remote ${webPort} (local dev only)` : `Ports       : API ${apiPort}, remote ${webPort}`);
   log(`Files (${files.length}):`);
   for (const f of files) log(`  + ${rel(root, f.to)}`);
   if (opts.dryRun) {
-    log(opts.noWire ? '\n(dry run, no wiring)' : '\nWould wire: ModulePlatform.sln, AppHost csproj + Program.cs, docker-compose.yml, SharedKernel.Tests.csproj');
+    log(opts.noWire ? '\n(dry run, no wiring)' : plugin ? '\nWould wire: ModulePlatform.sln, SharedKernel.Tests.csproj (no AppHost/compose: served by the Module Host)'
+      : '\nWould wire: ModulePlatform.sln, AppHost csproj + Program.cs, docker-compose.yml, SharedKernel.Tests.csproj');
     return;
   }
 
@@ -387,6 +438,17 @@ async function cmdNew(root, opts) {
       log('  ! npm install failed — run it manually.');
   }
 
+  if (plugin) {
+    log(`
+Done. Next steps (from module_as_plugin/):
+  dotnet build ModulePlatform.sln && dotnet test ModulePlatform.sln
+  ${CLI} package ${name}                     # dist/modules/${name}-1.0.0.zip
+  ${CLI} publish ${name} --password <pw>     # builds + uploads the package
+  ${CLI} install ${name} --tenant <TENANT_ID> --password <pw>
+The Module Host (:5300) serves the API under /plugins/${name} and the UI under /plugin-assets/${name}/<version>/.
+Then open Tenant Admin http://localhost:5175 -> Home -> ${displayName}.`);
+    return;
+  }
   log(`
 Done. Next steps (from module_as_plugin/):
   dotnet build ModulePlatform.sln && dotnet test ModulePlatform.sln
@@ -401,15 +463,18 @@ Then open Tenant Admin http://localhost:5175 -> Home -> ${displayName}.`);
 function cmdList(root) {
   const modulesDir = path.join(root, 'modules');
   const dirs = exists(modulesDir) ? fs.readdirSync(modulesDir, { withFileTypes: true }).filter((d) => d.isDirectory()) : [];
-  const rows = [['NAME', 'VERSION', 'SCOPE', 'API', 'REMOTE']];
+  const rows = [['NAME', 'TYPE', 'VERSION', 'SCOPE', 'API', 'REMOTE']];
   for (const d of dirs) {
     const mf = path.join(modulesDir, d.name, 'manifest.yml');
     if (!exists(mf)) continue;
     const m = read(mf);
     const name = m.match(/^\s*name:\s*(\S+)/m)?.[1] ?? d.name;
+    const type = moduleType(m);
+    const hostedUi = /^[ \t]*remoteUrl:[ \t]*(""|''|~|null)?[ \t]*(#[^\r\n]*)?\r?$/m.test(m);
     rows.push([
-      name, m.match(/^\s*version:\s*(\S+)/m)?.[1] ?? '-', m.match(/^\s*scope:\s*(\S+)/m)?.[1] ?? '-',
-      apiPortOf(moduleApiDir(root, name)) ?? '-', m.match(/remoteUrl:\s*\S+?:(\d+)\//)?.[1] ?? '-',
+      name, type, m.match(/^\s*version:\s*(\S+)/m)?.[1] ?? '-', m.match(/^\s*scope:\s*(\S+)/m)?.[1] ?? '-',
+      type === 'plugin' ? 'host' : apiPortOf(moduleApiDir(root, name)) ?? '-',
+      hostedUi ? 'host' : m.match(/remoteUrl:\s*\S+?:(\d+)\//)?.[1] ?? '-',
     ]);
   }
   const w = rows[0].map((_, i) => Math.max(...rows.map((r) => String(r[i]).length)));
@@ -418,10 +483,11 @@ function cmdList(root) {
 
 async function api(method, url, body, token) {
   let res;
+  const form = body instanceof FormData;
   try {
     res = await fetch(url, {
-      method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      method, headers: { ...(form ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body === undefined || form ? body : JSON.stringify(body),
     });
   } catch (e) { fail(`cannot reach ${url} (${e.cause?.code ?? e.message}). Is the gateway running?`); }
   const text = await res.text();
@@ -449,15 +515,126 @@ const gatewayUrl = (opts) => (opts.gateway ?? process.env.MODULE_GATEWAY ?? 'htt
 
 async function cmdPublish(root, opts) {
   const name = opts._[1];
-  if (!name) fail('usage: publish <name>');
-  const mf = path.join(root, 'modules', name, 'manifest.yml');
-  if (!exists(mf)) fail(`modules/${name}/manifest.yml not found`);
-  const port = apiPortOf(moduleApiDir(root, name));
-  const apiUrl = opts.apiUrl ?? (port && `http://localhost:${port}`);
-  if (!apiUrl) fail('cannot find the module API port; pass --api-url');
+  if (!name) fail('usage: publish <name> [--package [file]]');
+  const m = loadManifest(root, name);
+  const plugin = m.type === 'plugin';
+  const usePackage = plugin || opts.package !== undefined;
+  let apiUrl;
+  if (plugin) { if (opts.apiUrl) log('note: --api-url is ignored for plugin modules.'); }
+  else {
+    // service.baseUrl in the manifest is the platform default; only fall back to the local port without it.
+    const hasBaseUrl = /^[ \t]+baseUrl:[ \t]*["']?[^\s"'#]/m.test(m.text);
+    const port = apiPortOf(moduleApiDir(root, name));
+    apiUrl = opts.apiUrl ?? (hasBaseUrl ? undefined : port && `http://localhost:${port}`);
+    if (!apiUrl && !hasBaseUrl && !usePackage) fail('cannot find the module API port; pass --api-url');
+  }
   const gateway = gatewayUrl(opts);
   const jwt = await token(gateway, opts);
-  report('publish', await api('POST', `${gateway}/api/v1/platform/modules`, { manifestYaml: read(mf), artifactApiUrl: apiUrl }, jwt));
+  if (!usePackage) {
+    report('publish', await api('POST', `${gateway}/api/v1/platform/modules`, { manifestYaml: m.text, artifactApiUrl: apiUrl }, jwt));
+    return;
+  }
+  const file = typeof opts.package === 'string' ? path.resolve(opts.package) : packageModule(root, name, m, opts);
+  if (!exists(file)) fail(`package ${file} not found`);
+  const form = new FormData();
+  form.append('package', new Blob([fs.readFileSync(file)], { type: 'application/zip' }), path.basename(file));
+  if (apiUrl) form.append('artifactApiUrl', apiUrl);
+  log(`Uploading ${rel(process.cwd(), file)} ...`);
+  report('publish', await api('POST', `${gateway}/api/v1/platform/modules/package`, form, jwt));
+}
+
+function cmdPackage(root, opts) {
+  const name = opts._[1];
+  if (!name) fail('usage: package <name> [--out <file>] [--skip-build]');
+  const m = loadManifest(root, name);
+  const out = packageModule(root, name, m, opts);
+  log(`Packaged ${rel(process.cwd(), out)} (${m.type} ${name}@${m.version})`);
+}
+
+// Zip layout (SharedKernel.ModulePackage): manifest.yml, README.md?, plugin/** (plugin only), web/**.
+function packageModule(root, name, m, opts) {
+  const out = path.resolve(opts.out ?? path.join(root, 'dist', 'modules', `${name}-${m.version}.zip`));
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), `create-module-${name}-`));
+  const clean = () => fs.rmSync(staging, { recursive: true, force: true });
+  try {
+    fs.copyFileSync(m.file, path.join(staging, 'manifest.yml'));
+    const readme = path.join(root, 'modules', name, 'README.md');
+    if (exists(readme)) fs.copyFileSync(readme, path.join(staging, 'README.md'));
+    if (m.type === 'plugin') {
+      const project = `${toPascal(name)}.Plugin`;
+      const csproj = path.join(root, 'src', 'Modules', toPascal(name), project, `${project}.csproj`);
+      if (!exists(csproj)) throw new Error(`${rel(root, csproj)} not found`);
+      const pluginOut = path.join(staging, 'plugin');
+      log(`dotnet publish ${rel(root, csproj)} -c Release${opts.skipBuild ? ' --no-build' : ''} ...`);
+      if (!run('dotnet', ['publish', csproj, '-c', 'Release', '-o', pluginOut, '--nologo', ...(opts.skipBuild ? ['--no-build'] : [])], root).ok)
+        throw new Error('dotnet publish failed');
+      const removed = stripHostShared(pluginOut, project);
+      log(`  host-provided, not packaged: ${removed.join(', ') || '(none in publish output)'}`);
+      const assembly = m.text.match(/^[ \t]+assembly:[ \t]*["']?([^\s"'#]+)/m)?.[1];
+      if (!assembly || !exists(path.join(pluginOut, assembly))) throw new Error(`plugin.assembly "${assembly ?? ''}" not found in the publish output`);
+
+      const web = path.join(root, 'modules', name, 'web');
+      if (exists(web)) {
+        if (!opts.skipBuild) {
+          if (!exists(path.join(web, 'node_modules'))) {
+            log(`npm install in ${rel(root, web)} ...`);
+            if (!run('npm', ['install', '--no-audit', '--no-fund'], web).ok) throw new Error('npm install failed');
+          }
+          log(`npm run build in ${rel(root, web)} ...`);
+          if (!run('npm', ['run', 'build'], web).ok) throw new Error('npm run build failed');
+        }
+        const dist = path.join(web, 'dist');
+        if (!exists(path.join(dist, 'assets', 'remoteEntry.js'))) throw new Error(`${rel(root, dist)}/assets/remoteEntry.js not found (build the web app)`);
+        fs.cpSync(dist, path.join(staging, 'web'), { recursive: true });
+      }
+    }
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    if (exists(out)) fs.rmSync(out);
+    const entries = ['manifest.yml', 'README.md', 'plugin', 'web'].filter((e) => exists(path.join(staging, e)));
+    const r = process.platform === 'win32'
+      ? run('tar', ['-a', '-c', '-f', out, ...entries], staging)
+      : run('zip', ['-rqX', out, ...entries, '-x', '*.DS_Store'], staging);
+    if (!r.ok) throw new Error('zip failed (needs `zip` on macOS/Linux or `tar` on Windows)');
+    return out;
+  } catch (e) { clean(); fail(e.message); }
+  finally { clean(); }
+}
+
+// Removes what the Module Host already provides: HOST_SHARED assemblies plus every library that is
+// reachable only through them in <project>.deps.json (e.g. SharedKernel's YamlDotNet/Semver/JWT
+// packages). Libraries the plugin also depends on directly stay. deps.json is pruned to match.
+function stripHostShared(dir, project) {
+  const files = new Set(HOST_SHARED.flatMap((n) => ['dll', 'pdb', 'xml'].map((ext) => `${n}.${ext}`)));
+  const depsFile = path.join(dir, `${project}.deps.json`);
+  const deps = exists(depsFile) ? JSON.parse(read(depsFile)) : null;
+  if (deps) {
+    const id = (k) => k.slice(0, k.lastIndexOf('/'));
+    const libs = new Map();
+    for (const t of Object.values(deps.targets ?? {})) for (const [k, v] of Object.entries(t)) libs.set(id(k), [...(libs.get(id(k)) ?? []), v]);
+    const closure = (roots, skip = new Set()) => {
+      const seen = new Set();
+      const stack = [...roots];
+      while (stack.length) {
+        const n = stack.pop();
+        if (seen.has(n) || skip.has(n) || !libs.has(n)) continue;
+        seen.add(n);
+        for (const v of libs.get(n)) stack.push(...Object.keys(v.dependencies ?? {}));
+      }
+      return seen;
+    };
+    const shared = new Set(HOST_SHARED);
+    const own = (libs.get(project) ?? []).flatMap((v) => Object.keys(v.dependencies ?? {})).filter((n) => !shared.has(n));
+    const keep = closure([project, ...own], shared);
+    const drop = [...closure(HOST_SHARED)].filter((n) => !keep.has(n));
+    for (const n of drop) for (const v of libs.get(n)) {
+      for (const a of Object.keys(v.runtime ?? {})) files.add(path.basename(a));
+      for (const a of Object.keys(v.runtimeTargets ?? {})) files.add(a);
+      for (const [a, r] of Object.entries(v.resources ?? {})) files.add(`${r.locale}/${path.basename(a)}`);
+      delete v.runtime; delete v.runtimeTargets; delete v.resources;
+    }
+    if (drop.length) fs.writeFileSync(depsFile, JSON.stringify(deps, null, 2));
+  }
+  return [...files].filter((f) => exists(path.join(dir, f))).map((f) => (fs.rmSync(path.join(dir, f)), f)).sort();
 }
 
 async function cmdInstall(root, opts) {
@@ -487,14 +664,18 @@ async function cmdRemove(root, opts) {
     rl.close();
     if (!ok) fail('aborted');
   }
-  const csprojRel = path.join('src', 'Modules', pascal, `${pascal}.Api`, `${pascal}.Api.csproj`);
-  run('dotnet', ['sln', 'ModulePlatform.sln', 'remove', csprojRel], root, { inherit: false });
-  removeSolutionFolder(path.join(root, 'ModulePlatform.sln'), pascal);
+  const slnPath = path.join(root, 'ModulePlatform.sln');
+  for (const project of [`${pascal}.Api`, `${pascal}.Plugin`]) {
+    const csprojRel = path.join('src', 'Modules', pascal, project, `${project}.csproj`);
+    if (exists(path.join(root, csprojRel)) || read(slnPath).includes(`${project}.csproj`))
+      run('dotnet', ['sln', 'ModulePlatform.sln', 'remove', csprojRel], root, { inherit: false });
+    removeLine(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'), `\\Modules\\${pascal}\\${project}\\`);
+  }
+  removeSolutionFolder(slnPath, pascal);
   const appHost = path.join(root, 'src', 'Aspire', 'ModulePlatform.AppHost');
   removeLine(path.join(appHost, 'ModulePlatform.AppHost.csproj'), `\\Modules\\${pascal}\\${pascal}.Api\\`);
   removeBlock(path.join(appHost, 'Program.cs'), name, '//');
   removeBlock(path.join(root, 'docker-compose.yml'), name, '#');
-  removeLine(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'), `\\Modules\\${pascal}\\${pascal}.Api\\`);
   for (const t of targets) fs.rmSync(t, { recursive: true, force: true });
   log(`Removed ${name}. If it was published/installed, uninstall it from tenants via the platform.`);
 }
@@ -531,6 +712,6 @@ const command = opts._[0];
 if (!command || command === 'help' || opts.help) { log(HELP); process.exit(0); }
 if (Number(process.versions.node.split('.')[0]) < 18) fail('Node.js >= 18 is required');
 const root = findRoot();
-const commands = { new: cmdNew, list: cmdList, publish: cmdPublish, install: cmdInstall, remove: cmdRemove, pack: cmdPack };
+const commands = { new: cmdNew, list: cmdList, package: cmdPackage, publish: cmdPublish, install: cmdInstall, remove: cmdRemove, pack: cmdPack };
 if (!commands[command]) fail(`unknown command "${command}". Run with "help".`);
 await commands[command](root, opts);

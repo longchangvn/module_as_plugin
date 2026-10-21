@@ -63,9 +63,12 @@ public static partial class ManifestValidator
         else if (usedScopes is not null && usedScopes.Contains(m.Frontend.Scope))
             Add("frontend.scope", $"Scope '{m.Frontend.Scope}' already registered.");
 
-        if (!Uri.TryCreate(m.Frontend.RemoteUrl, UriKind.Absolute, out var remoteUri)
-            || (remoteUri.Scheme != "https" && !(isDevelopment && remoteUri.Scheme == "http")))
-            Add("frontend.remoteUrl", "Must be absolute https (http allowed in Development only).");
+        // module.type: type-specific rules (remoteUrl, network zone, plugin assembly...) — FR-002/FR-003.
+        var typeRules = ModuleTypeRegistry.Find(m.Module.Type);
+        if (typeRules is null)
+            Add("module.type", $"Unknown module type '{m.Module.Type}'. Supported: {string.Join(", ", ModuleTypeRegistry.Supported)}.");
+        else
+            errors.AddRange(typeRules.Validate(m, isDevelopment));
 
         if (string.IsNullOrWhiteSpace(m.Frontend.ModulePrefix) || !m.Frontend.ModulePrefix.StartsWith('/'))
             Add("frontend.modulePrefix", "Must start with '/'.");

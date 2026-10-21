@@ -1,5 +1,5 @@
 using Xunit;
-using Endpoints = global::__PASCAL__.Api.Endpoints.ModuleEndpoints;
+using Endpoints = global::__PROJECT__.Endpoints.ModuleEndpoints;
 
 namespace SharedKernel.Tests.Modules;
 

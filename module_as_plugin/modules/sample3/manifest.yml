@@ -1,0 +1,79 @@
+# manifest.yml — Sample Module 3 (plugin module, scaffolded by tools/create-module).
+manifestVersion: "1.0"
+
+module:
+  name: sample3
+  type: plugin
+  displayName: Sample Module 3
+  description: "Test plugin module - loaded in-process by the Module Host; open + permission-gated data."
+  version: 1.0.0
+  owner: platform-team@company.com
+  license: proprietary
+  icon: box
+  category: ops
+
+dependencies: []
+
+plugin:
+  assembly: Sample3.Plugin.dll
+  entryType: Sample3.Plugin.Sample3Plugin
+  contract: "1.0"
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+
+frontend:
+  remoteUrl: ""
+  scope: sample3_remote
+  modulePrefix: /sample3
+  routes:
+    - path: /sample3
+      exposes: ./Page
+      requiredPermission: null
+      menuId: sample3
+  menus:
+    - id: sample3
+      parentId: null
+      title: Sample Module 3
+      icon: box
+      route: /sample3
+      requiredPermission: null
+      order: 40
+  uiPermissions: [SAMPLE_THREE_DATA_PROTECTED]
+
+api:
+  routes:
+    - upstream: /api/v1/sample3/{rest}
+      downstream: /api/v1/{rest}
+      methods: [GET]
+      auth: true
+      requiredPermission: null
+      priority: 10
+  seed:
+    roles:
+      - name: Sample Module 3 Viewer
+        description: Can view Sample Module 3 protected data
+        isSystem: true
+    permissions:
+      - code: SAMPLE_THREE_DATA_VIEW
+        object: SAMPLE_THREE_DATA
+        action: VIEW
+        name: View Sample Module 3 data
+        isMenuAccess: true
+      - code: SAMPLE_THREE_DATA_PROTECTED
+        object: SAMPLE_THREE_DATA
+        action: PROTECTED
+        name: View Sample Module 3 protected data
+        isMenuAccess: false
+    menus: []
+    userRoles: []
+    rolePermissions:
+      - roleName: Sample Module 3 Viewer
+        permissions: [SAMPLE_THREE_DATA_VIEW, SAMPLE_THREE_DATA_PROTECTED]
+    userAdditionalPermissions: []
+    users: []
+    gatewayRules: []
+
+upgrade:
+  notes: "Initial release."

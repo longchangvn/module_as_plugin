@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Test plugin loaded by PluginHost.Tests from $(OutDir)fixture-plugin/ (never referenced as an
+       assembly, so it is not on the test host's trusted platform list and loads in its own ALC). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\ModulePlatform.Plugin.Abstractions\ModulePlatform.Plugin.Abstractions.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="..\..\src\Shared\SharedKernel\SharedKernel.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

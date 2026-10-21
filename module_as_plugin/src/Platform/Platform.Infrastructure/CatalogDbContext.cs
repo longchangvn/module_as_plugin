@@ -37,6 +37,7 @@ public sealed class CatalogDbContext(DbContextOptions<CatalogDbContext> options)
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.ModuleId, x.Version }).IsUnique();
             e.Property(x => x.ManifestYaml).HasColumnType("text");
+            e.Property(x => x.ModuleType).HasDefaultValue("remote");
         });
         b.Entity<TenantModuleInstall>(e => e.HasKey(x => new { x.TenantId, x.ModuleId }));
         b.Entity<TenantAudit>(e => e.HasKey(x => x.Id));

@@ -34,14 +34,18 @@ module_as_plugin/
   src/Auth/Auth.Api/          # Tenant users/roles/permissions + resolve (:5122, Domain/Infrastructure folders)
   src/Gateway/Gateway.Api/    # Ocelot proxy + admin API + traffic (:5100, ocelot.json + registry)
   src/Modules/Loyalty/        # Sample module API (:5201, health/ready/seed-preview/migrate)
+  src/Modules/Sample3/        # Sample plugin module (class library, loaded by the Module Host)
+  src/PluginHost/PluginHost.Api/ # Module Host (:5300): in-process plugin modules, per-tenant shells
+  src/Shared/ModulePlatform.Plugin.Abstractions/ # IModulePlugin contract (1.0) for plugin modules
   src/Aspire/                 # .NET Aspire orchestration (AppHost + ServiceDefaults)
-    ModulePlatform.AppHost/   # Postgres (:5434, volume) + 4 APIs + 3 frontends + dashboard
+    ModulePlatform.AppHost/   # Postgres (:5434, volume) + APIs + Module Host + frontends + dashboard
     ModulePlatform.ServiceDefaults/ # resilience, service discovery, OTel, /health + /alive
-  tests/SharedKernel.Tests/   # validator + resolver + permission + menu tests
-  docker-compose.yml          # postgres + services
+  tests/SharedKernel.Tests/   # validator + resolver + permission + menu + module type/package tests
+  tests/PluginHost.Tests/     # plugin loading (ALC), tenant shells, Module Host HTTP
+  docker-compose.yml          # postgres + services (+ plugin-host)
 ```
 
-Ports: gateway `:5100`, platform `:5121`, auth `:5122`, loyalty `:5201`, shell `:5173`, loyalty-web `:5174`, tenant-admin `:5175`.
+Ports: gateway `:5100`, platform `:5121`, auth `:5122`, Module Host `:5300`, loyalty `:5201`, shell `:5173`, loyalty-web `:5174`, tenant-admin `:5175`.
 
 Full local setup (DB + migrations + sample tenant): see [SETUP.md](SETUP.md).
 
@@ -204,6 +208,30 @@ node tools/create-module/create-module.mjs publish <name> --password <pw>
 node tools/create-module/create-module.mjs install <name> --tenant <TENANT_ID> --password <pw>
 ```
 
+## Module types (`remote`, `plugin`)
+
+`module.type` in `manifest.yml` (optional, default `remote`; spec: `../specs/002-module-hosting-types/`):
+
+- **remote**: the module runs its own API process. The gateway routes to `artifactApiUrl`, which defaults to
+  `service.baseUrl`. `service.network` (`same-cluster` default | `cross-cluster` | `public`) requires https
+  for non-local zones outside Development.
+- **plugin**: a class library implementing `IModulePlugin`, loaded by the shared **Module Host** (`:5300`) in a
+  collectible `AssemblyLoadContext` per `(module, version)`. Each tenant gets an immutable shell
+  (`module -> version, enabled`), so tenants can run different versions side by side, and a change for one
+  tenant never interrupts another. The gateway routes to the host (`/plugins/<name>/...`). UI assets are served
+  from `/plugin-assets/<name>/<version>/`. The host reconciles from the Platform at startup and every 5 min.
+  Sample: `sample3`.
+
+```bash
+node tools/create-module/create-module.mjs new <name> --type plugin -y
+node tools/create-module/create-module.mjs package <name>   # dist/modules/<name>-<version>.zip
+node tools/create-module/create-module.mjs publish <name>   # POST /api/v1/platform/modules/package
+```
+
+Package upload: `POST /api/v1/platform/modules/package` (Admin, multipart field `package`, ≤ 50 MB).
+Unsafe or incomplete zips → `400 PACKAGE_INVALID` with per-entry details. Plugin manifests cannot be published
+as JSON. Details: [module developer guide §12](docs/module-developer-guide.md#12-module-types-remote-vs-plugin).
+
 ## Module Catalog (platform shell, `/modules`)
 
 - **All modules** (default picker value): every registered module with
@@ -212,9 +240,10 @@ node tools/create-module/create-module.mjs install <name> --tenant <TENANT_ID> -
   tenants only; tenants that already have it are shown with their state),
   version defaults to latest; the UI calls the per-tenant install API once per
   tenant and shows a result per tenant. Deprecated modules can't be installed.
-- **Register module** (Admin): upload/paste `manifest.yml` + module API URL
-  (+ optional remote URL) → `POST /api/v1/platform/modules`; validation
-  errors are listed inline.
+- **Register module** (Admin): **Upload package** (zip → `POST /api/v1/platform/modules/package`,
+  required for plugins) or **Paste manifest** (`manifest.yml` + module API URL, optional remote URL →
+  `POST /api/v1/platform/modules`). Validation/package errors are listed inline. Cards show a
+  `remote`/`plugin` type badge.
 - **Tenant selected**: only that tenant's Installed / Disabled / Failed
   modules, with Enable / Disable / Upgrade / Uninstall and Retry install.
 - Maintainer sees everything read-only (R1).

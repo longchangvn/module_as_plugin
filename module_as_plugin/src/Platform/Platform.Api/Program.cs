@@ -48,6 +48,21 @@ builder.Services.AddScoped<IModuleLifecyclePorts, EfLifecyclePorts>();
 builder.Services.AddScoped<ModuleLifecycleService>();
 builder.Services.AddHttpClient("lifecycle", c => c.Timeout = TimeSpan.FromSeconds(30));
 
+// Module types (FR-003): one IModuleHostingStrategy per type; adding a type = one registration.
+builder.Services.AddSingleton(builder.Configuration.GetSection("PluginHost").Get<PluginHostOptions>() ?? new PluginHostOptions());
+builder.Services.AddHttpClient("plugin-host", c => c.Timeout = TimeSpan.FromSeconds(60)); // includes package download + load
+builder.Services.AddScoped<IPluginHostClient, HttpPluginHostClient>();
+builder.Services.AddScoped<IRemoteModuleClient, HttpRemoteModuleClient>();
+builder.Services.AddScoped<IModuleHostingStrategy, RemoteHostingStrategy>();
+builder.Services.AddScoped<IModuleHostingStrategy, PluginHostingStrategy>();
+builder.Services.AddScoped<ModuleHostingRegistry>();
+builder.Services.AddScoped<ModuleHostingCoordinator>();
+// Package registration (FR-004..FR-007): limits + immutable file store.
+var packageOptions = builder.Configuration.GetSection("ModulePackages").Get<ModulePackageOptions>() ?? new ModulePackageOptions();
+builder.Services.AddSingleton(packageOptions);
+builder.Services.AddSingleton<ModulePackageStore>();
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = packageOptions.MaxPackageBytes + 1024 * 1024);
+
 // Data Protection key ring for tenant connection secrets. Persisted to disk
 // (DataProtection:KeyDirectory, default ./keys) — without persistence every
 // stored secret is orphaned on restart/redeploy.

@@ -199,7 +199,7 @@ export function CatalogPage() {
           onOpenChange={setRegisterOpen}
           onRegistered={(r) => {
             setRegisterOpen(false);
-            setNotice(`Registered ${r.id} v${r.version}.`);
+            setNotice(`Registered ${r.id} v${r.version}${r.type ? ` (${r.type} module)` : ''}.`);
             refresh();
           }}
         />

@@ -14,11 +14,15 @@ public sealed class ManifestFile
     public ManifestFrontend Frontend { get; set; } = new();
     public ManifestApi Api { get; set; } = new();
     public ManifestUpgrade Upgrade { get; set; } = new();
+    // Required when module.type = plugin (in-process, Module Host).
+    public ManifestPlugin? Plugin { get; set; }
 }
 
 public sealed class ManifestModule
 {
     public string Name { get; set; } = "";
+    // Module type (hosting model): remote (standalone host, default) | plugin. See ModuleTypes.
+    public string Type { get; set; } = ModuleTypeNames.Remote;
     public string DisplayName { get; set; } = "";
     public string Description { get; set; } = "";
     public string Version { get; set; } = "";
@@ -40,6 +44,37 @@ public sealed class ManifestService
     public string ReadinessCheck { get; set; } = "/readyz";
     public string? OpenapiUrl { get; set; }
     public string? MinPlatformVersion { get; set; }
+    // Remote only: where the standalone host runs relative to the platform.
+    public string Network { get; set; } = ModuleNetworks.SameCluster;
+    // Remote only: default artifact API base URL when none is supplied at publish.
+    public string? BaseUrl { get; set; }
+}
+
+public sealed class ManifestPlugin
+{
+    // Entry assembly file name inside the package's plugin/ folder.
+    public string Assembly { get; set; } = "";
+    // Optional full type name of the IModulePlugin implementation.
+    public string? EntryType { get; set; }
+    // Plugin contract version (ModulePlatform.Plugin.Abstractions).
+    public string Contract { get; set; } = "1.0";
+}
+
+public static class ModuleTypeNames
+{
+    public const string Remote = "remote";
+    public const string Plugin = "plugin";
+
+    public static string Normalize(string? type) =>
+        string.IsNullOrWhiteSpace(type) ? Remote : type.Trim().ToLowerInvariant();
+}
+
+public static class ModuleNetworks
+{
+    public const string SameCluster = "same-cluster";
+    public const string CrossCluster = "cross-cluster";
+    public const string Public = "public";
+    public static readonly string[] All = [SameCluster, CrossCluster, Public];
 }
 
 public sealed class ManifestFrontend

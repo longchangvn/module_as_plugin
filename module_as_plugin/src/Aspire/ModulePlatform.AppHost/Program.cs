@@ -53,6 +53,19 @@ var platform = builder.AddProject<Projects.Platform_Api>("platform")
 
 auth.WithReference(platform);
 
+// Module Host: in-process plugin modules (module.type: plugin), shared by all tenants.
+var pluginHost = builder.AddProject<Projects.PluginHost_Api>("plugin-host")
+    .WithEndpoint("http", e => { e.Port = 5300; e.IsProxied = false; })
+    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5300")
+    .WithReference(platform)
+    .WithReference(auth)
+    .WithEnvironment("Platform__BaseUrl", "http://localhost:5121")
+    .WithEnvironment("Auth__BaseUrl", "http://localhost:5122")
+    .WithEnvironment("InternalApi__Key", "dev-internal-key");
+platform
+    .WithEnvironment("PluginHost__BaseUrl", "http://localhost:5300")
+    .WithEnvironment("PluginHost__PublicBaseUrl", "http://localhost:5300");
+
 var loyalty = builder.AddProject<Projects.Loyalty_Api>("loyalty")
     .WithEndpoint("http", e => { e.Port = 5201; e.IsProxied = false; })
     .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5201")

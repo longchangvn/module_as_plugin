@@ -79,6 +79,12 @@ public sealed class ModuleVersion
     public string Status { get; set; } = "AVAILABLE";
     public string? PublishedBy { get; set; }
     public DateTimeOffset PublishedAt { get; set; }
+    // Hosting model of this version (manifest module.type): remote | plugin.
+    public string ModuleType { get; set; } = "remote";
+    // SHA-256 of the uploaded package (required for plugins; null for JSON publish).
+    public string? PackageSha256 { get; set; }
+    // Package file relative to ModulePackages:Root; never exposed by public APIs.
+    public string? PackagePath { get; set; }
 }
 
 public sealed class TenantModuleInstall

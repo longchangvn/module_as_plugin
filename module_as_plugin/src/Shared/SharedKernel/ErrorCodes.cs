@@ -31,6 +31,10 @@ public static class ErrorCodes
     public const string UnknownUser = "UNKNOWN_USER";
     public const string UnknownRole = "UNKNOWN_ROLE";
     public const string UnknownPermission = "UNKNOWN_PERMISSION";
+    public const string UnknownModuleRoute = "UNKNOWN_MODULE_ROUTE";
+    public const string PackageInvalid = "PACKAGE_INVALID";
+    public const string PluginLoadFailed = "PLUGIN_LOAD_FAILED";
+    public const string PluginHostUnavailable = "PLUGIN_HOST_UNAVAILABLE";
 }
 
 public sealed record ErrorEnvelope(string Code, string Message, object? Details = null, bool Retryable = false);
