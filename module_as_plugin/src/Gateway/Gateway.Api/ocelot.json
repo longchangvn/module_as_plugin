@@ -73,28 +73,7 @@
       }
     },
     {
-      "Key": "rt_sample2_22369adf",
-      "UpstreamPathTemplate": "/api/v1/sample2/{rest}",
-      "UpstreamHttpMethod": [
-        "GET"
-      ],
-      "DownstreamPathTemplate": "/api/v1/{rest}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5203
-        }
-      ],
-      "Priority": 10,
-      "Metadata": {
-        "serviceId": "sample2",
-        "source": "module-install",
-        "managedBy": "module:sample2"
-      }
-    },
-    {
-      "Key": "rt_sample1_501a14aa",
+      "Key": "rt_sample1_4da90863",
       "UpstreamPathTemplate": "/api/v1/sample1/{rest}",
       "UpstreamHttpMethod": [
         "GET"
@@ -112,6 +91,27 @@
         "serviceId": "sample1",
         "source": "module-install",
         "managedBy": "module:sample1"
+      }
+    },
+    {
+      "Key": "rt_reports_26c03c97",
+      "UpstreamPathTemplate": "/api/v1/reports/{rest}",
+      "UpstreamHttpMethod": [
+        "GET"
+      ],
+      "DownstreamPathTemplate": "/plugins/reports/api/v1/{rest}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 5300
+        }
+      ],
+      "Priority": 10,
+      "Metadata": {
+        "serviceId": "reports",
+        "source": "module-install",
+        "managedBy": "module:reports"
       }
     }
   ],

@@ -1,0 +1,75 @@
+# manifest.yml — Inventory (scaffolded by tools/create-module).
+manifestVersion: "1.0"
+
+module:
+  name: inventory
+  displayName: Inventory
+  description: "Inventory module."
+  version: 1.0.0
+  owner: platform-team@company.com
+  license: proprietary
+  icon: box
+  category: ops
+
+dependencies: []
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+  openapiUrl: /swagger/v1/swagger.json
+
+frontend:
+  remoteUrl: http://localhost:5179/assets/remoteEntry.js
+  scope: inventory_remote
+  modulePrefix: /inventory
+  routes:
+    - path: /inventory
+      exposes: ./Page
+      requiredPermission: null
+      menuId: inventory
+  menus:
+    - id: inventory
+      parentId: null
+      title: Inventory
+      icon: box
+      route: /inventory
+      requiredPermission: null
+      order: 50
+  uiPermissions: [INVENTORY_DATA_PROTECTED]
+
+api:
+  routes:
+    - upstream: /api/v1/inventory/{rest}
+      downstream: /api/v1/{rest}
+      methods: [GET]
+      auth: true
+      requiredPermission: null
+      priority: 10
+  seed:
+    roles:
+      - name: Inventory Viewer
+        description: Can view Inventory protected data
+        isSystem: true
+    permissions:
+      - code: INVENTORY_DATA_VIEW
+        object: INVENTORY_DATA
+        action: VIEW
+        name: View Inventory data
+        isMenuAccess: true
+      - code: INVENTORY_DATA_PROTECTED
+        object: INVENTORY_DATA
+        action: PROTECTED
+        name: View Inventory protected data
+        isMenuAccess: false
+    menus: []
+    userRoles: []
+    rolePermissions:
+      - roleName: Inventory Viewer
+        permissions: [INVENTORY_DATA_VIEW, INVENTORY_DATA_PROTECTED]
+    userAdditionalPermissions: []
+    users: []
+    gatewayRules: []
+
+upgrade:
+  notes: "Initial release."
+  migrateEndpoint: /internal/migrate

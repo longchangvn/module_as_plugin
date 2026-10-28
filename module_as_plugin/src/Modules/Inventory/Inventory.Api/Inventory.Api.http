@@ -1,0 +1,20 @@
+@direct = http://localhost:5204
+@gateway = http://localhost:5100
+@token = paste-tenant-access-token
+@tenantId = paste-tenant-id
+
+### Health (direct)
+GET {{direct}}/healthz
+
+### Seed preview (direct, must equal manifest api.seed)
+POST {{direct}}/internal/seed:preview
+
+### Sample data through the gateway
+GET {{gateway}}/api/v1/inventory/data
+Authorization: Bearer {{token}}
+X-Tenant-Id: {{tenantId}}
+
+### Protected data through the gateway (needs INVENTORY_DATA_PROTECTED)
+GET {{gateway}}/api/v1/inventory/protected
+Authorization: Bearer {{token}}
+X-Tenant-Id: {{tenantId}}

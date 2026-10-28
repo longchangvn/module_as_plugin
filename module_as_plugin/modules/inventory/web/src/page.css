@@ -1,0 +1,13 @@
+/* Self-contained styles (host Tailwind does not scan remotes). Prefixed .mod-inventory- to avoid collisions. */
+.mod-inventory-page { display: grid; gap: 16px; font-family: inherit; color: inherit; }
+.mod-inventory-header { display: flex; align-items: center; gap: 12px; }
+.mod-inventory-header h1 { margin: 0; font-size: 1.5rem; font-weight: 600; }
+.mod-inventory-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; background: #eef2ff; color: #3730a3; }
+.mod-inventory-card { display: grid; gap: 8px; justify-items: start; padding: 16px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.mod-inventory-card h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.mod-inventory-muted { margin: 0; color: #6b7280; font-size: 0.875rem; }
+.mod-inventory-button { padding: 8px 14px; border-radius: 6px; border: 1px solid #111827; background: #111827; color: #fff; font-size: 0.875rem; cursor: pointer; }
+.mod-inventory-button:disabled { background: #e5e7eb; border-color: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+.mod-inventory-hint { color: #b45309; font-size: 0.8rem; }
+.mod-inventory-error { margin: 0; color: #b91c1c; font-size: 0.875rem; }
+.mod-inventory-json { justify-self: stretch; margin: 0; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 0.8rem; overflow: auto; max-height: 320px; }

@@ -7,7 +7,8 @@ import { defineConfig } from 'vite';
 // /plugin-assets/sample3/<version>/, so the build uses a relative base (no absolute /assets/ URLs).
 // originjs remotes only work from a build: `npm run serve` = build + preview on :5178.
 export default defineConfig({
-  base: './',
+  // originjs prefixes exposes with base + assetsDir, so './' resolves to assets/assets/... (404).
+  base: '',
   plugins: [
     react(),
     federation({

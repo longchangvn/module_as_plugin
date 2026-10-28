@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\Modules\Sample1\Sample1.Api\Sample1.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Sample2\Sample2.Api\Sample2.Api.csproj" />
     <ProjectReference Include="..\..\Platform\Platform.Api\Platform.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Inventory\Inventory.Api\Inventory.Api.csproj" />
   </ItemGroup>
 
 </Project>

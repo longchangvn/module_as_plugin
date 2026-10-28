@@ -1,0 +1,79 @@
+# manifest.yml — Reports (plugin module, scaffolded by tools/create-module).
+manifestVersion: "1.0"
+
+module:
+  name: reports
+  type: plugin
+  displayName: Reports
+  description: "Reports module."
+  version: 1.0.0
+  owner: platform-team@company.com
+  license: proprietary
+  icon: box
+  category: ops
+
+dependencies: []
+
+plugin:
+  assembly: Reports.Plugin.dll
+  entryType: Reports.Plugin.ReportsPlugin
+  contract: "1.0"
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+
+frontend:
+  remoteUrl: ""
+  scope: reports_remote
+  modulePrefix: /reports
+  routes:
+    - path: /reports
+      exposes: ./Page
+      requiredPermission: null
+      menuId: reports
+  menus:
+    - id: reports
+      parentId: null
+      title: Reports
+      icon: box
+      route: /reports
+      requiredPermission: null
+      order: 50
+  uiPermissions: [REPORTS_DATA_PROTECTED]
+
+api:
+  routes:
+    - upstream: /api/v1/reports/{rest}
+      downstream: /api/v1/{rest}
+      methods: [GET]
+      auth: true
+      requiredPermission: null
+      priority: 10
+  seed:
+    roles:
+      - name: Reports Viewer
+        description: Can view Reports protected data
+        isSystem: true
+    permissions:
+      - code: REPORTS_DATA_VIEW
+        object: REPORTS_DATA
+        action: VIEW
+        name: View Reports data
+        isMenuAccess: true
+      - code: REPORTS_DATA_PROTECTED
+        object: REPORTS_DATA
+        action: PROTECTED
+        name: View Reports protected data
+        isMenuAccess: false
+    menus: []
+    userRoles: []
+    rolePermissions:
+      - roleName: Reports Viewer
+        permissions: [REPORTS_DATA_VIEW, REPORTS_DATA_PROTECTED]
+    userAdditionalPermissions: []
+    users: []
+    gatewayRules: []
+
+upgrade:
+  notes: "Initial release."

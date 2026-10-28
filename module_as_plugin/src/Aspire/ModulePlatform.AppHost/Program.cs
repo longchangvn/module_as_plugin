@@ -111,4 +111,19 @@ var tenantAdmin = builder.AddNpmApp("tenant-admin", "../../../apps/tenant-admin"
     .WithExternalHttpEndpoints()
     .WithReference(gateway);
 
+// >>> module:inventory (create-module)
+var inventory = builder.AddProject<Projects.Inventory_Api>("inventory")
+    .WithEndpoint("http", e => { e.Port = 5204; e.IsProxied = false; })
+    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5204")
+    .WithReference(platform)
+    .WithReference(auth)
+    .WithEnvironment("Platform__BaseUrl", "http://localhost:5121")
+    .WithEnvironment("Auth__BaseUrl", "http://localhost:5122");
+
+// Federation remotes must be built (vite preview) — remoteEntry.js is not served by `vite dev`.
+var inventoryWeb = builder.AddNpmApp("inventory-web", "../../../modules/inventory/web", "serve")
+    .WithEndpoint("http", e => { e.Port = 5179; e.IsProxied = false; })
+    .WithExternalHttpEndpoints();
+// <<< module:inventory
+
 builder.Build().Run();

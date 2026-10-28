@@ -195,6 +195,30 @@ services:
     depends_on:
       - gateway
 
+  # >>> module:inventory (create-module)
+  inventory:
+    build:
+      context: .
+      dockerfile: src/Modules/Inventory/Inventory.Api/Dockerfile
+    ports:
+      - "5204:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Jwt__SecretKey: ${JWT_SECRET:?set JWT_SECRET (>=32 chars, see .env.example)}
+      Platform__BaseUrl: http://platform:8080
+      Auth__BaseUrl: http://auth:8080
+    depends_on:
+      - platform
+      - auth
+
+  inventory-web:
+    build:
+      context: .
+      dockerfile: modules/inventory/web/Dockerfile
+    ports:
+      - "5179:80"
+  # <<< module:inventory
+
 volumes:
   pgdata:
   dpkeys:
