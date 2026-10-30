@@ -8,12 +8,26 @@ namespace PluginHost.Api.Services;
 // extractor into {CacheRoot}/{id}/{version} and mark the folder with the verified hash.
 // A folder whose marker matches is reused (restart / second tenant needs no download).
 public sealed class PlatformPackageClient(
-    IHttpClientFactory http, IConfiguration cfg, PluginHostOptions options, ILogger<PlatformPackageClient> log) : IPluginPackageSource
+    IHttpClientFactory http, IConfiguration cfg, PluginHostOptions options, ILogger<PlatformPackageClient> log)
+    : IPluginPackageSource, IModuleAssetSource
 {
     public const string HttpClientName = "platform-internal";
     private readonly SemaphoreSlim gate = new(1, 1);
 
     public async Task<PluginPackage> GetAsync(string moduleId, string version, string packageSha256, CancellationToken ct)
+    {
+        var (target, sha) = await EnsureExtractedAsync(moduleId, version, packageSha256, ct);
+        return PluginPackage.FromDirectory(moduleId, version, sha, target);
+    }
+
+    public async Task EnsureAssetsAsync(string moduleId, string version, string packageSha256, CancellationToken ct)
+    {
+        var (target, _) = await EnsureExtractedAsync(moduleId, version, packageSha256, ct);
+        PluginPackage.ReadManifest(moduleId, version, target);
+    }
+
+    // Extracted + hash-verified package folder {CacheRoot}/{id}/{version} (downloaded when missing).
+    private async Task<(string Target, string Sha)> EnsureExtractedAsync(string moduleId, string version, string packageSha256, CancellationToken ct)
     {
         if (!PluginIds.IsValidId(moduleId) || !PluginIds.IsValidVersion(version))
             throw new PluginLoadException($"Invalid module id or version '{moduleId}@{version}'.");
@@ -25,8 +39,7 @@ public sealed class PlatformPackageClient(
         await gate.WaitAsync(ct);
         try
         {
-            if (ReadMarker(target) == expected)
-                return PluginPackage.FromDirectory(moduleId, version, expected, target);
+            if (ReadMarker(target) == expected) return (target, expected);
 
             var downloads = Path.Combine(options.CacheRoot, ".downloads");
             Directory.CreateDirectory(downloads);
@@ -45,7 +58,7 @@ public sealed class PlatformPackageClient(
                 TryDelete(() => File.Delete(zipPath));
             }
             log.LogInformation("plugin.package module={module} version={version} sha256={sha} result=extracted", moduleId, version, expected);
-            return PluginPackage.FromDirectory(moduleId, version, expected, target);
+            return (target, expected);
         }
         finally { gate.Release(); }
     }

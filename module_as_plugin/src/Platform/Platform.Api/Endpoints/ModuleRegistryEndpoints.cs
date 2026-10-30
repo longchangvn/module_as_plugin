@@ -101,10 +101,10 @@ public static class ModuleRegistryEndpoints
         ManifestFile manifest;
         try { manifest = ManifestParser.Parse(req.ManifestYaml); }
         catch (Exception ex) { return ApiErrors.Problem(ErrorCodes.ValidationError, $"Invalid YAML: {ex.Message}", 400); }
-        if (ModuleTypeNames.Normalize(manifest.Module.Type) == ModuleTypeNames.Plugin)
+        if (ModuleTypeNames.Normalize(manifest.Module.Type) is ModuleTypeNames.Plugin or ModuleTypeNames.Hybrid)
             return ApiErrors.Problem(ErrorCodes.ValidationError,
-                "Plugin modules must be registered by package upload (POST /api/v1/platform/modules/package).", 400,
-                new[] { new { field = "module.type", message = "Use package upload for plugin modules." } });
+                "Plugin and hybrid modules must be registered by package upload (POST /api/v1/platform/modules/package).", 400,
+                new[] { new { field = "module.type", message = "Use package upload for plugin and hybrid modules." } });
         return await PublishVersionAsync(db, ctx, env, store, req.ManifestYaml, manifest, req.ArtifactApiUrl, req.ArtifactRemoteUrl, null, null);
     }).RequireAuthorization("PlatformAny");
 
@@ -172,12 +172,16 @@ public static class ModuleRegistryEndpoints
         }
         var failures = ManifestValidator.Validate(manifest, usedScopes, env.IsDevelopment()).ToList();
         var type = ModuleTypeNames.Normalize(manifest.Module.Type);
-        if (type == ModuleTypeNames.Remote)
+        if (type is ModuleTypeNames.Remote or ModuleTypeNames.Hybrid)
         {
             // FR-026: manifest service.baseUrl is the default artifact URL; FR-025 transport rule.
             artifactApiUrl ??= NullIfBlank(manifest.Service.BaseUrl);
             if (RemoteModuleTypeRules.ValidateArtifactUrl(manifest, artifactApiUrl, env.IsDevelopment()) is { } urlError)
                 failures.Add(new("artifactApiUrl", urlError));
+            if (type == ModuleTypeNames.Hybrid && HybridModuleTypeRules.ValidateApiTarget(manifest, artifactApiUrl) is { } targetError)
+                failures.Add(new("artifactApiUrl", targetError));
+            // Hybrid UI is embedded in the package; an external remote URL would bypass it.
+            if (type == ModuleTypeNames.Hybrid) artifactRemoteUrl = null;
         }
         else
         {

@@ -104,6 +104,44 @@ public sealed class ModulePackageTests : IDisposable
         Assert.False(info.HasPluginAssembly);
     }
 
+    private const string HybridManifest = """
+        manifestVersion: "1.0"
+        module:
+          name: hybrid-sample
+          type: hybrid
+          displayName: Hybrid Sample
+          version: 1.0.0
+          owner: team@example.com
+        service:
+          baseUrl: http://localhost:5205
+        frontend:
+          remoteUrl: ""
+          scope: hybrid_sample_remote
+          modulePrefix: /hybrid-sample
+          routes:
+            - path: /hybrid-sample
+              exposes: ./Page
+        """;
+
+    [Fact]
+    public void Hybrid_package_with_web_is_valid()
+    {
+        using var zip = Zip(("manifest.yml", HybridManifest), ("web/assets/remoteEntry.js", "export {}"));
+        var (info, failures) = ModulePackage.Inspect(zip);
+        Assert.Empty(failures);
+        Assert.Equal("hybrid", info!.Manifest.Module.Type);
+        Assert.True(info.HasRemoteEntry);
+        Assert.False(info.HasPluginAssembly);
+    }
+
+    [Fact]
+    public void Hybrid_package_requires_remote_entry_and_rejects_plugin_files()
+    {
+        Assert.Contains(Failures(Zip(("manifest.yml", HybridManifest))), f => f.Field == ModulePackage.RemoteEntry);
+        Assert.Contains(Failures(Zip(("manifest.yml", HybridManifest), ("web/assets/remoteEntry.js", "export {}"), ("plugin/X.dll", "MZ"))),
+            f => f.Field == ModulePackage.PluginRoot);
+    }
+
     [Fact]
     public void Missing_manifest_rejected() =>
         Assert.Contains(Failures(Zip(("README.md", "x"))), f => f.Field == "manifest.yml");

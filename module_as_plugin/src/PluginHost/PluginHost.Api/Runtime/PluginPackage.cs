@@ -18,6 +18,17 @@ public sealed record PluginPackage(
     // Reads manifest.yml of an extracted package folder; manifest problems are load failures.
     public static PluginPackage FromDirectory(string moduleId, string version, string sha256, string contentRoot)
     {
+        var manifest = ReadManifest(moduleId, version, contentRoot);
+        if (ModuleTypeNames.Normalize(manifest.Module.Type) != ModuleTypeNames.Plugin || manifest.Plugin is null)
+            throw new PluginLoadException($"{moduleId}@{version} is not a plugin module (module.type / plugin section).");
+        return new PluginPackage(moduleId, version, sha256, contentRoot, manifest.Plugin.Assembly,
+            string.IsNullOrWhiteSpace(manifest.Plugin.EntryType) ? null : manifest.Plugin.EntryType.Trim(),
+            string.IsNullOrWhiteSpace(manifest.Plugin.Contract) ? PluginContractDefault : manifest.Plugin.Contract.Trim());
+    }
+
+    // Parses manifest.yml of an extracted package and checks it is the expected module + version.
+    public static ManifestFile ReadManifest(string moduleId, string version, string contentRoot)
+    {
         var manifestPath = Path.Combine(contentRoot, ModulePackage.ManifestEntry);
         if (!File.Exists(manifestPath))
             throw new PluginLoadException($"{moduleId}@{version}: manifest.yml missing from the extracted package.");
@@ -31,11 +42,7 @@ public sealed record PluginPackage(
             throw new PluginLoadException($"Package manifest is for module '{manifest.Module.Name}', expected '{moduleId}'.");
         if (!string.IsNullOrWhiteSpace(manifest.Module.Version) && !string.Equals(manifest.Module.Version, version, StringComparison.OrdinalIgnoreCase))
             throw new PluginLoadException($"Package manifest is version '{manifest.Module.Version}', expected '{version}'.");
-        if (ModuleTypeNames.Normalize(manifest.Module.Type) != ModuleTypeNames.Plugin || manifest.Plugin is null)
-            throw new PluginLoadException($"{moduleId}@{version} is not a plugin module (module.type / plugin section).");
-        return new PluginPackage(moduleId, version, sha256, contentRoot, manifest.Plugin.Assembly,
-            string.IsNullOrWhiteSpace(manifest.Plugin.EntryType) ? null : manifest.Plugin.EntryType.Trim(),
-            string.IsNullOrWhiteSpace(manifest.Plugin.Contract) ? PluginContractDefault : manifest.Plugin.Contract.Trim());
+        return manifest;
     }
 
     private const string PluginContractDefault = "1.0";
@@ -45,6 +52,13 @@ public sealed record PluginPackage(
 public interface IPluginPackageSource
 {
     Task<PluginPackage> GetAsync(string moduleId, string version, string packageSha256, CancellationToken ct);
+}
+
+// Hybrid modules: makes a verified package's web/ servable under /plugin-assets/ without loading
+// anything (same download/verify/extract/cache as plugins). Throws like IPluginPackageSource.
+public interface IModuleAssetSource
+{
+    Task EnsureAssetsAsync(string moduleId, string version, string packageSha256, CancellationToken ct);
 }
 
 // Load/contract/hash failure → 422 PLUGIN_LOAD_FAILED (tenant shell unchanged).

@@ -17,6 +17,10 @@ public sealed class HttpPluginHostClient(IHttpClientFactory http, IConfiguration
         SendAsync(HttpMethod.Post, $"/internal/plugins/{Esc(moduleId)}/versions/{Esc(version)}/migrate",
             new { fromVersion, toVersion = version, packageSha256 }, "migrate", ct);
 
+    public Task StageAssetsAsync(string moduleId, string version, string packageSha256, CancellationToken ct) =>
+        SendAsync(HttpMethod.Put, $"/internal/plugins/{Esc(moduleId)}/versions/{Esc(version)}/assets",
+            new { packageSha256 }, "stage assets", ct);
+
     private async Task SendAsync(HttpMethod method, string path, object? body, string action, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, $"{options.BaseUrl.TrimEnd('/')}{path}")

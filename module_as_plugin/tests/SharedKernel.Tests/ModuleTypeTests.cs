@@ -92,6 +92,53 @@ public sealed class ModuleTypeTests
         Assert.Contains(Validate(m), e => e.Field == "service.baseUrl");
     }
 
+    private static ManifestFile Hybrid()
+    {
+        var m = Load("sample1");
+        m.Module.Type = "hybrid";
+        m.Frontend.RemoteUrl = "";
+        m.Service.BaseUrl = "http://localhost:5205";
+        return m;
+    }
+
+    [Fact]
+    public void Valid_hybrid_manifest_passes_with_empty_remote_url()
+    {
+        Assert.Empty(Validate(Hybrid()));
+        Assert.Null(HybridModuleTypeRules.ValidateApiTarget(Hybrid(), "http://localhost:5205"));
+    }
+
+    [Fact]
+    public void Hybrid_rejects_external_remote_url_and_plugin_section()
+    {
+        var m = Hybrid();
+        m.Frontend.RemoteUrl = "http://localhost:5176/assets/remoteEntry.js";
+        m.Plugin = new ManifestPlugin { Assembly = "X.dll" };
+        var errors = Validate(m);
+        Assert.Contains(errors, e => e.Field == "frontend.remoteUrl");
+        Assert.Contains(errors, e => e.Field == "plugin");
+    }
+
+    [Fact]
+    public void Hybrid_api_follows_remote_network_rules()
+    {
+        var m = Hybrid();
+        m.Service.Network = "public";
+        m.Service.BaseUrl = "http://api.example.com";
+        Assert.Contains(Validate(m, dev: false), e => e.Field == "service.baseUrl");
+        m.Service.BaseUrl = "https://api.example.com";
+        Assert.Empty(Validate(m, dev: false));
+    }
+
+    [Fact]
+    public void Hybrid_api_routes_need_a_target_but_frontend_only_does_not()
+    {
+        var m = Hybrid();
+        Assert.NotNull(HybridModuleTypeRules.ValidateApiTarget(m, null));
+        m.Api.Routes.Clear();
+        Assert.Null(HybridModuleTypeRules.ValidateApiTarget(m, null));
+    }
+
     [Fact]
     public void Remote_still_requires_remote_url()
     {

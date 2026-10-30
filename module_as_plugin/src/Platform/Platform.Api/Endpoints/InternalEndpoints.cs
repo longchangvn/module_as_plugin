@@ -152,7 +152,8 @@ public static class InternalEndpoints
     });
 
     // Module Host reconcile source (FR-021): every (plugin module, version) used by an install
-    // row, with tenants; enabled rule identical to the gateway snapshot. NOT routed by the gateway.
+    // row, with tenants; enabled rule identical to the gateway snapshot. assets = hybrid versions
+    // in use whose UI the host must keep cached. NOT routed by the gateway.
     app.MapGet("/internal/plugin-host/states", async (CatalogDbContext db, HttpContext ctx, IConfiguration cfg) =>
     {
         if (!IsInternalCaller(ctx, cfg))
@@ -160,9 +161,14 @@ public static class InternalEndpoints
         var rows = await (
             from i in db.Installs.AsNoTracking()
             join v in db.ModuleVersions.AsNoTracking() on new { i.ModuleId, i.Version } equals new { v.ModuleId, v.Version }
-            where i.State != InstallState.NotInstalled && v.ModuleType == ModuleTypeNames.Plugin
-            select new { i.ModuleId, i.Version, v.PackageSha256, i.TenantId, i.Enabled, i.State }).ToListAsync();
-        var plugins = rows.GroupBy(r => new { r.ModuleId, r.Version, r.PackageSha256 }).Select(g => new
+            where i.State != InstallState.NotInstalled
+                && (v.ModuleType == ModuleTypeNames.Plugin || v.ModuleType == ModuleTypeNames.Hybrid)
+            select new { i.ModuleId, i.Version, v.PackageSha256, v.ModuleType, i.TenantId, i.Enabled, i.State }).ToListAsync();
+        // Hybrid versions only need their UI assets cached (no tenant shell, no assembly load).
+        var assets = rows.Where(r => r.ModuleType == ModuleTypeNames.Hybrid && !string.IsNullOrWhiteSpace(r.PackageSha256))
+            .Select(r => new { moduleId = r.ModuleId, version = r.Version, packageSha256 = r.PackageSha256 })
+            .Distinct().ToList();
+        var plugins = rows.Where(r => r.ModuleType == ModuleTypeNames.Plugin).GroupBy(r => new { r.ModuleId, r.Version, r.PackageSha256 }).Select(g => new
         {
             moduleId = g.Key.ModuleId, version = g.Key.Version, packageSha256 = g.Key.PackageSha256,
             tenants = g.Select(r => new
@@ -171,7 +177,7 @@ public static class InternalEndpoints
                 enabled = r.Enabled && (r.State is InstallState.Installed or InstallState.Installing),
             }).ToList(),
         }).ToList();
-        return Results.Json(new { data = new { plugins } });
+        return Results.Json(new { data = new { plugins, assets } });
     });
     }
 

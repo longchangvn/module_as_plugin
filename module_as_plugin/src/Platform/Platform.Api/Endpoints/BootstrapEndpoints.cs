@@ -32,8 +32,8 @@ public static class BootstrapEndpoints
             ManifestFile manifest;
             try { manifest = ManifestParser.Parse(ver.ManifestYaml); }
             catch { continue; }
-            // FR-022: plugin UI served by the Module Host from the package's web/ folder.
-            var remoteUrl = string.IsNullOrWhiteSpace(manifest.Frontend.RemoteUrl) && ver.ModuleType == ModuleTypeNames.Plugin
+            // FR-022: plugin / hybrid UI served by the Module Host from the package's web/ folder.
+            var remoteUrl = string.IsNullOrWhiteSpace(manifest.Frontend.RemoteUrl) && ver.ModuleType is ModuleTypeNames.Plugin or ModuleTypeNames.Hybrid
                 ? pluginHost.RemoteEntryUrl(ins.ModuleId, ins.Version)
                 : manifest.Frontend.RemoteUrl;
             modules.Add(new

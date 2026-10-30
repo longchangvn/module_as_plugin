@@ -27,6 +27,12 @@ internal sealed class FakePluginHost(List<string> journal) : IPluginHostClient
         journal.Add($"host.migrate:{moduleId}:{fromVersion}->{version}");
         return Task.CompletedTask;
     }
+
+    public Task StageAssetsAsync(string moduleId, string version, string packageSha256, CancellationToken ct)
+    {
+        journal.Add($"host.assets:{moduleId}@{version}");
+        return FailActivate ? throw new InvalidOperationException("PLUGIN_HOST_UNAVAILABLE") : Task.CompletedTask;
+    }
 }
 
 internal sealed class FakeRemoteClient(List<string> journal) : IRemoteModuleClient
@@ -119,6 +125,7 @@ public sealed class ModuleHostingTests
         {
             new RemoteHostingStrategy(new FakeRemoteClient(journal)),
             new PluginHostingStrategy(host, HostOptions),
+            new HybridHostingStrategy(host, new FakeRemoteClient(journal)),
         };
         if (withEdge) strategies.Add(new EdgeFunctionStrategy(journal));
         return (new ModuleHostingCoordinator(new ModuleHostingRegistry(strategies)), journal, host);
@@ -229,6 +236,55 @@ public sealed class ModuleHostingTests
         await c.MigrateAsync(Ref("inventory", "1.1.0", "remote"), "1.0.0", Ct); // no artifact URL → skipped
         await c.MigrateAsync(Ref("sample3", "1.1.0", "plugin"), "1.1.0", Ct);   // same version → skipped
         Assert.Equal(["host.migrate:sample3:1.0.0->1.1.0", "remote.migrate:http://inv:8080:1.0.0->1.1.0"], journal);
+    }
+
+    [Fact]
+    public void Hybrid_target_is_the_external_api_with_unprefixed_downstream()
+    {
+        var (c, _, _) = Build();
+        var m = Manifest("hybrid-sample", "1.0.0", "hybrid");
+        m.Service.BaseUrl = "http://localhost:5205";
+        var target = c.Target(m, Ref("hybrid-sample", "1.0.0", "hybrid"));
+        Assert.Equal("http://localhost:5205", target.BaseUrl);
+        Assert.Equal("/api/v1/{rest}", Assert.Single(target.Upstreams).Downstream);
+        Assert.Equal("https://api.example.com", c.Target(m, Ref("hybrid-sample", "1.0.0", "hybrid", "https://api.example.com")).BaseUrl);
+    }
+
+    [Fact]
+    public async Task Hybrid_enable_stages_ui_assets_before_gateway_and_disable_or_remove_never_call_the_host()
+    {
+        var (c, journal, _) = Build();
+        var m = Manifest("hybrid-sample", "1.0.0", "hybrid");
+        var v = Ref("hybrid-sample", "1.0.0", "hybrid", "http://localhost:5205");
+        await c.ApplyAsync(TenantId, m, v, true, _ => { journal.Add("gateway"); return Task.CompletedTask; }, Ct);
+        Assert.Equal(["host.assets:hybrid-sample@1.0.0", "gateway"], journal);
+
+        journal.Clear();
+        await c.ApplyAsync(TenantId, m, v, false, _ => { journal.Add("gateway"); return Task.CompletedTask; }, Ct);
+        Assert.Null(await c.RemoveAsync(TenantId, v, () => { journal.Add("gateway.remove"); return Task.CompletedTask; }, Ct));
+        Assert.Equal(["gateway", "gateway.remove"], journal);
+    }
+
+    [Fact]
+    public async Task Hybrid_asset_failure_never_publishes_a_route_and_requires_a_package()
+    {
+        var (c, journal, host) = Build();
+        var m = Manifest("hybrid-sample", "1.0.0", "hybrid");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => c.ApplyAsync(TenantId, m,
+            Ref("hybrid-sample", "1.0.0", "hybrid", sha: null), true, _ => { journal.Add("gateway"); return Task.CompletedTask; }, Ct));
+        host.FailActivate = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => c.ApplyAsync(TenantId, m,
+            Ref("hybrid-sample", "1.0.0", "hybrid"), true, _ => { journal.Add("gateway"); return Task.CompletedTask; }, Ct));
+        Assert.DoesNotContain("gateway", journal);
+    }
+
+    [Fact]
+    public async Task Hybrid_migrate_calls_the_external_api_hook()
+    {
+        var (c, journal, _) = Build();
+        await c.MigrateAsync(Ref("hybrid-sample", "1.1.0", "hybrid", "http://localhost:5205"), "1.0.0", Ct);
+        await c.MigrateAsync(Ref("hybrid-sample", "1.1.0", "hybrid"), "1.0.0", Ct); // frontend-only → skipped
+        Assert.Equal(["remote.migrate:http://localhost:5205:1.0.0->1.1.0"], journal);
     }
 
     // SC-006: a new type registered next to remote/plugin installs through the unchanged lifecycle.

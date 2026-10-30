@@ -93,8 +93,29 @@ internal static class TestPlugins
 
 // In-memory stand-in for the Platform download: writes fixture packages into the cache folder.
 // Contracts["module@version"] overrides plugin.contract; Unavailable simulates a download failure.
-public sealed class FolderPackageSource(string cacheRoot) : IPluginPackageSource
+public sealed class FolderPackageSource(string cacheRoot) : IPluginPackageSource, IModuleAssetSource
 {
+    // Hybrid package (manifest + web/ only), laid out like PlatformPackageClient's cache.
+    public Task EnsureAssetsAsync(string moduleId, string version, string packageSha256, CancellationToken ct)
+    {
+        Interlocked.Increment(ref calls);
+        var key = PluginIds.RuntimeKey(moduleId, version);
+        if (Unavailable.ContainsKey(key)) throw new PluginPackageUnavailableException($"{key} unavailable (test)");
+        var root = Path.Combine(CacheRoot, moduleId, version);
+        if (Directory.Exists(root)) return Task.CompletedTask;
+        Directory.CreateDirectory(Path.Combine(root, "web", "assets"));
+        File.WriteAllText(Path.Combine(root, "manifest.yml"), $"""
+            manifestVersion: "1.0"
+            module:
+              name: {moduleId}
+              type: hybrid
+              version: "{version}"
+            """);
+        File.WriteAllText(Path.Combine(root, "web", "assets", "remoteEntry.js"), "export const hybrid = true;");
+        File.WriteAllText(Path.Combine(root, PluginPackage.MarkerFile), packageSha256);
+        return Task.CompletedTask;
+    }
+
     private int calls;
 
     public string CacheRoot { get; } = cacheRoot;

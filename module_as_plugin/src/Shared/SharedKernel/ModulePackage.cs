@@ -96,6 +96,8 @@ public static class ModulePackage
             {
                 failures.Add(new(PluginRoot, $"plugin/ is only allowed for plugin modules (module.type is '{type}')."));
             }
+            if (type == ModuleTypeNames.Hybrid && manifest.Frontend.Routes.Count > 0 && !hasRemoteEntry)
+                failures.Add(new(RemoteEntry, "Hybrid modules with frontend routes must ship web/assets/remoteEntry.js (served by the Module Host)."));
             if (failures.Count > 0) return (null, failures);
 
             return (new ModulePackageInfo(yaml, manifest, sha, hasAssembly, hasWeb, hasRemoteEntry, files.Count, total), failures);

@@ -20,6 +20,7 @@ public static class ModuleTypeRegistry
     {
         Register(new RemoteModuleTypeRules());
         Register(new PluginModuleTypeRules());
+        Register(new HybridModuleTypeRules());
     }
 
     public static void Register(IModuleTypeRules rules)
@@ -53,7 +54,12 @@ public sealed class RemoteModuleTypeRules : IModuleTypeRules
         if (!Uri.TryCreate(m.Frontend.RemoteUrl, UriKind.Absolute, out var remoteUri)
             || (remoteUri.Scheme != "https" && !(isDevelopment && remoteUri.Scheme == "http")))
             yield return new("frontend.remoteUrl", "Must be absolute https (http allowed in Development only).");
+        foreach (var failure in ValidateService(m, isDevelopment)) yield return failure;
+    }
 
+    // Network zone + service.baseUrl transport rule, shared with hybrid modules (standalone API).
+    internal static IEnumerable<ManifestValidator.ValidationFailure> ValidateService(ManifestFile m, bool isDevelopment)
+    {
         var network = string.IsNullOrWhiteSpace(m.Service.Network) ? ModuleNetworks.SameCluster : m.Service.Network.Trim().ToLowerInvariant();
         if (!ModuleNetworks.All.Contains(network))
         {
@@ -109,4 +115,28 @@ public sealed partial class PluginModuleTypeRules : IModuleTypeRules
              || (remoteUri.Scheme != "https" && !(isDevelopment && remoteUri.Scheme == "http"))))
             yield return new("frontend.remoteUrl", "Must be empty (served by the Module Host) or absolute https (http allowed in Development only).");
     }
+}
+
+// Hybrid: UI embedded in the Module Host (package web/, like plugins), API — when the module has
+// one — on a standalone service reached over the network (like remotes: network zone, baseUrl).
+// No plugin assembly is loaded. Whether api.routes have a target is checked at publish, where the
+// artifactApiUrl override is known.
+public sealed class HybridModuleTypeRules : IModuleTypeRules
+{
+    public string Type => ModuleTypeNames.Hybrid;
+
+    public IEnumerable<ManifestValidator.ValidationFailure> Validate(ManifestFile m, bool isDevelopment)
+    {
+        if (m.Plugin is not null)
+            yield return new("plugin", "Hybrid modules do not load an assembly; remove the plugin section.");
+        if (!string.IsNullOrWhiteSpace(m.Frontend.RemoteUrl))
+            yield return new("frontend.remoteUrl", "Must be empty: hybrid UIs are served by the Module Host from the package's web/ folder.");
+        foreach (var failure in RemoteModuleTypeRules.ValidateService(m, isDevelopment)) yield return failure;
+    }
+
+    // Publish-time rule: api.routes need a downstream (artifactApiUrl, else service.baseUrl).
+    public static string? ValidateApiTarget(ManifestFile m, string? artifactApiUrl) =>
+        m.Api.Routes.Count > 0 && string.IsNullOrWhiteSpace(artifactApiUrl)
+            ? "Hybrid modules with api.routes need the external API URL: set service.baseUrl or supply artifactApiUrl."
+            : null;
 }

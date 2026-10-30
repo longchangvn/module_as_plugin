@@ -55,6 +55,7 @@ builder.Services.AddScoped<IPluginHostClient, HttpPluginHostClient>();
 builder.Services.AddScoped<IRemoteModuleClient, HttpRemoteModuleClient>();
 builder.Services.AddScoped<IModuleHostingStrategy, RemoteHostingStrategy>();
 builder.Services.AddScoped<IModuleHostingStrategy, PluginHostingStrategy>();
+builder.Services.AddScoped<IModuleHostingStrategy, HybridHostingStrategy>();
 builder.Services.AddScoped<ModuleHostingRegistry>();
 builder.Services.AddScoped<ModuleHostingCoordinator>();
 // Package registration (FR-004..FR-007): limits + immutable file store.

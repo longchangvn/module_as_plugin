@@ -33,7 +33,12 @@ public sealed class PluginHostHttpTests : IAsyncLifetime
         app = PluginHostApp.Build(
             ["--urls", "http://127.0.0.1:0", "--environment", "Development",
              "--PluginHost:ReconcileEnabled=false", $"--PluginHost:CacheRoot={cacheRoot}", "--PluginHost:DrainTimeoutSeconds=5"],
-            b => b.Services.Replace(ServiceDescriptor.Singleton<IPluginPackageSource>(new FolderPackageSource(cacheRoot))));
+            b =>
+            {
+                var source = new FolderPackageSource(cacheRoot);
+                b.Services.Replace(ServiceDescriptor.Singleton<IPluginPackageSource>(source));
+                b.Services.Replace(ServiceDescriptor.Singleton<IModuleAssetSource>(source));
+            });
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
         http = new HttpClient { BaseAddress = new Uri(address) };
@@ -172,6 +177,43 @@ public sealed class PluginHostHttpTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"/plugin-assets/{Module}/1.0.0/%2e%2e/manifest.yml")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"/plugin-assets/{Module}/1.0.0/..%2Fmanifest.yml")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"/plugin-assets/{Module}/9.9.9/assets/remoteEntry.js")).StatusCode);
+    }
+
+    // Hybrid modules: the host only caches + serves the UI; no tenant shell, no plugin API.
+    [Fact]
+    public async Task Hybrid_assets_are_staged_and_served_without_a_tenant_shell()
+    {
+        const string hybrid = "hybrid-sample";
+        HttpRequestMessage Stage(string version, string? sha, bool withKey = true)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Put, $"/internal/plugins/{hybrid}/versions/{version}/assets")
+            {
+                Content = JsonContent.Create(new { packageSha256 = sha }),
+            };
+            if (withKey) req.Headers.Add("X-Internal-Key", Extensions.DevInternalKey);
+            return req;
+        }
+
+        var sha = TestPlugins.Sha($"{hybrid}@1.0.0");
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"/plugin-assets/{hybrid}/1.0.0/assets/remoteEntry.js")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await http.SendAsync(Stage("1.0.0", sha, withKey: false))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await http.SendAsync(Stage("1.0.0", "nope"))).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await http.SendAsync(Stage("1.0.0", sha))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await http.SendAsync(Stage("1.0.0", sha))).StatusCode); // idempotent
+        var entry = await http.GetAsync($"/plugin-assets/{hybrid}/1.0.0/assets/remoteEntry.js");
+        Assert.Equal(HttpStatusCode.OK, entry.StatusCode);
+        Assert.Contains("hybrid", await entry.Content.ReadAsStringAsync());
+
+        var view = new HttpRequestMessage(HttpMethod.Get, "/internal/plugins");
+        view.Headers.Add("X-Internal-Key", Extensions.DevInternalKey);
+        Assert.Empty((await DataOf(await http.SendAsync(view))).GetProperty("runtimes").EnumerateArray());
+
+        var source = (FolderPackageSource)app.Services.GetRequiredService<IModuleAssetSource>();
+        source.Unavailable[$"{hybrid}@2.0.0"] = true;
+        var down = await http.SendAsync(Stage("2.0.0", TestPlugins.Sha($"{hybrid}@2.0.0")));
+        Assert.Equal(HttpStatusCode.BadGateway, down.StatusCode);
+        Assert.Equal(ErrorCodes.PluginHostUnavailable, await ErrorCode(down));
     }
 
     // SC-002: while tenant A's plugin is installed, upgraded, disabled and removed repeatedly,

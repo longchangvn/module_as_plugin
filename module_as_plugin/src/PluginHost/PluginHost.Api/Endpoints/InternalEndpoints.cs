@@ -10,6 +10,8 @@ public sealed record ActivateRequest(string? Version, bool? Enabled, string? Pac
 
 public sealed record MigrateRequest(string? FromVersion, string? ToVersion, string? PackageSha256);
 
+public sealed record StageAssetsRequest(string? PackageSha256);
+
 // Platform → Module Host protocol (contracts/plugin-host-api.md, research R9). X-Internal-Key on
 // every call; not routed by the gateway.
 public static class InternalEndpoints
@@ -76,6 +78,22 @@ public static class InternalEndpoints
                 }
                 finally { runtime.Exit(); }
                 return Results.Json(new { data = new { migrated = true } });
+            });
+        });
+
+        // Hybrid modules: cache the package so /plugin-assets/{moduleId}/{version}/ serves its web/.
+        // Idempotent (reuses a cache folder whose marker matches); never touches tenant shells.
+        api.MapPut("/{moduleId}/versions/{version}/assets", async (
+            IModuleAssetSource assets, string moduleId, string version, StageAssetsRequest? req, CancellationToken ct) =>
+        {
+            if (ValidateIds(moduleId, null) is { } invalid) return invalid;
+            if (!PluginIds.IsValidVersion(version)) return Invalid("version", "Invalid version.");
+            if (!PluginIds.IsValidSha256(req?.PackageSha256))
+                return Invalid("packageSha256", "Required: 64-character hex SHA-256 of the package.");
+            return await Guarded(async () =>
+            {
+                await assets.EnsureAssetsAsync(moduleId, version, req!.PackageSha256!, ct);
+                return Results.Json(new { data = new { moduleId, version, staged = true } });
             });
         });
 

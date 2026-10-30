@@ -1,9 +1,15 @@
 import { Download } from 'lucide-react';
-import { moduleType, type RegistryModule } from '../lib/bootstrap';
+import { moduleType, type ModuleType, type RegistryModule } from '../lib/bootstrap';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StatusBadge } from '@/components/status-badge';
+
+const TYPE_BADGE: Record<ModuleType, { variant: 'default' | 'secondary' | 'outline'; title: string }> = {
+  plugin: { variant: 'default', title: 'Plugin module (hosted in-process by the platform)' },
+  hybrid: { variant: 'secondary', title: 'Hybrid module (UI hosted by the platform, API on a deployed service)' },
+  remote: { variant: 'outline', title: 'Remote module (deployed service)' },
+};
 
 // Registry card (all-modules view): metadata, dependencies, install count,
 // and the multi-tenant install entry point for Admins.
@@ -28,10 +34,7 @@ export function RegistryModuleCard({
             <CardTitle className="flex items-center gap-2 text-base">
               {module.displayName}
               {module.latestVersion && <Badge variant="secondary">v{module.latestVersion}</Badge>}
-              <Badge
-                variant={type === 'plugin' ? 'default' : 'outline'}
-                title={type === 'plugin' ? 'Plugin module (hosted in-process by the platform)' : 'Remote module (deployed service)'}
-              >
+              <Badge variant={TYPE_BADGE[type].variant} title={TYPE_BADGE[type].title}>
                 {type}
               </Badge>
             </CardTitle>

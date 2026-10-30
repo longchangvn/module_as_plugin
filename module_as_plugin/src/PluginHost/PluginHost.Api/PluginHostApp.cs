@@ -60,7 +60,9 @@ public static class PluginHostApp
         builder.Services.AddSingleton<PluginEndpointDataSource>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<MatcherPolicy, PluginTenantMatcherPolicy>());
         builder.Services.AddSingleton<PluginRuntimeFactory>();
-        builder.Services.AddSingleton<IPluginPackageSource, PlatformPackageClient>();
+        builder.Services.AddSingleton<PlatformPackageClient>();
+        builder.Services.AddSingleton<IPluginPackageSource>(sp => sp.GetRequiredService<PlatformPackageClient>());
+        builder.Services.AddSingleton<IModuleAssetSource>(sp => sp.GetRequiredService<PlatformPackageClient>());
         builder.Services.AddSingleton<TenantShellRegistry>();
         builder.Services.AddSingleton<ShellReconciler>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<ShellReconciler>());

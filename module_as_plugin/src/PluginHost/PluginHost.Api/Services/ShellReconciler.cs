@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using PluginHost.Api.Runtime;
 using PluginHost.Api.Shells;
 
 namespace PluginHost.Api.Services;
@@ -7,7 +8,8 @@ namespace PluginHost.Api.Services;
 // until the Platform answers) and every PluginHost:ReconcileIntervalMinutes, then replace the
 // tenant shells. Heals missed pushes after a restart. Platform down → keep the current shells.
 public sealed class ShellReconciler(
-    TenantShellRegistry registry, IHttpClientFactory http, IConfiguration cfg, PluginHostOptions options, ILogger<ShellReconciler> log)
+    TenantShellRegistry registry, IModuleAssetSource assets, IHttpClientFactory http, IConfiguration cfg, PluginHostOptions options,
+    ILogger<ShellReconciler> log)
     : BackgroundService
 {
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(1);
@@ -74,6 +76,7 @@ public sealed class ShellReconciler(
                 (p.Tenants ?? []).Select(t => new DesiredTenant(t.TenantId!, t.Enabled)).ToList()));
         }
 
+        var assetFailures = await EnsureAssetsAsync(data.Assets ?? [], ct);
         var result = await registry.ReplaceAsync(desired, generation, ct);
         if (result.Skipped)
         {
@@ -83,11 +86,35 @@ public sealed class ShellReconciler(
         foreach (var failure in result.Failures) log.LogError("plugin.reconcile load failed: {failure}", failure);
         if (result.Drift > 0) log.LogWarning("plugin.reconcile result=repaired drift={drift}", result.Drift);
         else log.LogDebug("plugin.reconcile result=in-sync");
-        return result.Failures.Count == 0;
+        return result.Failures.Count == 0 && assetFailures == 0;
+    }
+
+    // Hybrid UIs: keep every in-use version cached (re-downloads after a cache wipe). A failure only
+    // affects that module's UI; it is logged and retried on the next (backed-off) reconcile.
+    private async Task<int> EnsureAssetsAsync(List<StateAsset> wanted, CancellationToken ct)
+    {
+        var failures = 0;
+        foreach (var a in wanted)
+        {
+            if (!PluginIds.IsValidId(a.ModuleId) || !PluginIds.IsValidVersion(a.Version) || !PluginIds.IsValidSha256(a.PackageSha256))
+            {
+                log.LogWarning("plugin.reconcile assets invalid entry={module}@{version}", a.ModuleId, a.Version);
+                failures++;
+                continue;
+            }
+            try { await assets.EnsureAssetsAsync(a.ModuleId!, a.Version!, a.PackageSha256!, ct); }
+            catch (Exception ex) when (ex is PluginLoadException or PluginPackageUnavailableException)
+            {
+                log.LogError("plugin.reconcile assets failed {module}@{version}: {error}", a.ModuleId, a.Version, ex.Message);
+                failures++;
+            }
+        }
+        return failures;
     }
 
     private sealed record StatesEnvelope(StatesData? Data);
-    private sealed record StatesData(List<StatePlugin>? Plugins);
+    private sealed record StatesData(List<StatePlugin>? Plugins, List<StateAsset>? Assets);
+    private sealed record StateAsset(string? ModuleId, string? Version, string? PackageSha256);
     private sealed record StatePlugin(string? ModuleId, string? Version, string? PackageSha256, List<StateTenant>? Tenants);
     private sealed record StateTenant(string? TenantId, bool Enabled);
 }

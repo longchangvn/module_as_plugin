@@ -69,10 +69,10 @@ export interface RegistryModule {
   type?: ModuleType; // type of the latest version; missing on older servers → 'remote'
 }
 
-export type ModuleType = 'remote' | 'plugin';
+export type ModuleType = 'remote' | 'plugin' | 'hybrid';
 
 export function moduleType(m: { type?: string | null }): ModuleType {
-  return m.type === 'plugin' ? 'plugin' : 'remote';
+  return m.type === 'plugin' || m.type === 'hybrid' ? m.type : 'remote';
 }
 
 export type ModuleInstallState = 'INSTALLING' | 'INSTALLED' | 'DISABLED' | 'FAILED' | 'UNINSTALLING';
@@ -140,7 +140,7 @@ export interface RegisterPackageBody {
   artifactRemoteUrl?: string;
 }
 
-// Registers a module version from a .zip package (remote or plugin) via multipart upload.
+// Registers a module version from a .zip package (remote, plugin or hybrid) via multipart upload.
 export async function registerModulePackage(body: RegisterPackageBody): Promise<RegisterPackageResult> {
   const form = new FormData();
   form.append('package', body.file, body.file.name);

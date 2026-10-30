@@ -21,7 +21,7 @@ public sealed class ManifestFile
 public sealed class ManifestModule
 {
     public string Name { get; set; } = "";
-    // Module type (hosting model): remote (standalone host, default) | plugin. See ModuleTypes.
+    // Module type (hosting model): remote (standalone host, default) | plugin | hybrid. See ModuleTypes.
     public string Type { get; set; } = ModuleTypeNames.Remote;
     public string DisplayName { get; set; } = "";
     public string Description { get; set; } = "";
@@ -44,9 +44,9 @@ public sealed class ManifestService
     public string ReadinessCheck { get; set; } = "/readyz";
     public string? OpenapiUrl { get; set; }
     public string? MinPlatformVersion { get; set; }
-    // Remote only: where the standalone host runs relative to the platform.
+    // Remote / hybrid: where the standalone API runs relative to the platform.
     public string Network { get; set; } = ModuleNetworks.SameCluster;
-    // Remote only: default artifact API base URL when none is supplied at publish.
+    // Remote / hybrid: default artifact API base URL when none is supplied at publish.
     public string? BaseUrl { get; set; }
 }
 
@@ -64,6 +64,8 @@ public static class ModuleTypeNames
 {
     public const string Remote = "remote";
     public const string Plugin = "plugin";
+    // UI embedded in the Module Host (package web/), API (optional) on an external service.
+    public const string Hybrid = "hybrid";
 
     public static string Normalize(string? type) =>
         string.IsNullOrWhiteSpace(type) ? Remote : type.Trim().ToLowerInvariant();

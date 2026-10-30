@@ -145,6 +145,8 @@ public interface IPluginHostClient
     Task ActivateAsync(string moduleId, string tenantId, string version, bool enabled, string packageSha256, CancellationToken ct);
     Task DeactivateAsync(string moduleId, string tenantId, CancellationToken ct);
     Task MigrateAsync(string moduleId, string version, string fromVersion, string packageSha256, CancellationToken ct);
+    // Hybrid: download + verify + extract the package so /plugin-assets/ serves its web/ (no load).
+    Task StageAssetsAsync(string moduleId, string version, string packageSha256, CancellationToken ct);
 }
 
 public sealed class PluginHostingStrategy(IPluginHostClient host, PluginHostOptions options) : IModuleHostingStrategy
@@ -163,8 +165,32 @@ public sealed class PluginHostingStrategy(IPluginHostClient host, PluginHostOpti
     public Task MigrateAsync(ModuleVersionRef target, string fromVersion, CancellationToken ct) =>
         host.MigrateAsync(target.ModuleId, target.Version, fromVersion, RequireSha(target), ct);
 
-    private static string RequireSha(ModuleVersionRef v) =>
+    internal static string RequireSha(ModuleVersionRef v) =>
         string.IsNullOrWhiteSpace(v.PackageSha256)
-            ? throw new InvalidOperationException($"Plugin {v.ModuleId}@{v.Version} has no package; re-register it by package upload.")
+            ? throw new InvalidOperationException($"{v.ModuleType} module {v.ModuleId}@{v.Version} has no package; re-register it by package upload.")
             : v.PackageSha256;
+}
+
+// ---- hybrid: UI served by the Module Host, API on an external service ----
+
+public sealed class HybridHostingStrategy(IPluginHostClient host, IRemoteModuleClient remote) : IModuleHostingStrategy
+{
+    public string Type => ModuleTypeNames.Hybrid;
+
+    // Same downstream rule as remote modules (artifact URL, else manifest service.baseUrl).
+    public GatewayTarget GatewayTarget(ManifestFile manifest, ModuleVersionRef version) =>
+        new(string.IsNullOrWhiteSpace(version.ArtifactApiUrl) ? manifest.Service.BaseUrl : version.ArtifactApiUrl,
+            GatewayUpstreams.From(manifest));
+
+    // UI assets must be servable before the tenant is routed/bootstrapped. Assets are immutable and
+    // shared by tenants, so disable/uninstall leave them cached (the asset route is per version).
+    public Task ActivateAsync(string tenantId, ModuleVersionRef version, bool enabled, CancellationToken ct) =>
+        enabled ? host.StageAssetsAsync(version.ModuleId, version.Version, PluginHostingStrategy.RequireSha(version), ct) : Task.CompletedTask;
+
+    public Task DeactivateAsync(string tenantId, ModuleVersionRef version, CancellationToken ct) => Task.CompletedTask;
+
+    public Task MigrateAsync(ModuleVersionRef target, string fromVersion, CancellationToken ct) =>
+        string.IsNullOrWhiteSpace(target.ArtifactApiUrl)
+            ? Task.CompletedTask
+            : remote.MigrateAsync(target.ArtifactApiUrl, fromVersion, target.Version, ct);
 }
