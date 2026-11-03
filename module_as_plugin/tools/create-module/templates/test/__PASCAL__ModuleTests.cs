@@ -15,7 +15,7 @@ public sealed class __PASCAL__ModuleTests
     }
 
     private static ManifestFile Load() =>
-        ManifestParser.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "modules", Endpoints.ModuleId, "manifest.yml")));
+        ManifestParser.Parse(File.ReadAllText(Path.Combine(RepoRoot(), __MODULES_PATH__, Endpoints.ModuleId, "manifest.yml")));
 
     [Fact]
     public void Manifest_passes_platform_validation()

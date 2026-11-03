@@ -13,8 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Shared\SharedKernel\SharedKernel.csproj" />
-    <ProjectReference Include="..\..\..\Aspire\ModulePlatform.ServiceDefaults\ModulePlatform.ServiceDefaults.csproj" />
+    <ProjectReference Include="__SRC_REL__\Shared\SharedKernel\SharedKernel.csproj" />
+    <ProjectReference Include="__SRC_REL__\Aspire\ModulePlatform.ServiceDefaults\ModulePlatform.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\Modules\Sample3\Sample3.Plugin\Sample3.Plugin.csproj" />
     <ProjectReference Include="..\..\src\Modules\Inventory\Inventory.Api\Inventory.Api.csproj" />
     <ProjectReference Include="..\..\src\Modules\Reports\Reports.Plugin\Reports.Plugin.csproj" />
+    <ProjectReference Include="..\..\..\modules\orders\api\Orders.Api\Orders.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -126,4 +126,15 @@ var inventoryWeb = builder.AddNpmApp("inventory-web", "../../../modules/inventor
     .WithExternalHttpEndpoints();
 // <<< module:inventory
 
+// >>> module:orders (create-module)
+// Hybrid module: API process only; its UI is served by the Module Host (plugin-host).
+var orders = builder.AddProject<Projects.Orders_Api>("orders")
+    .WithEndpoint("http", e => { e.Port = 5205; e.IsProxied = false; })
+    .WithEnvironment("ASPNETCORE_URLS", "http://localhost:5205")
+    .WithReference(platform)
+    .WithReference(auth)
+    .WithEnvironment("Platform__BaseUrl", "http://localhost:5121")
+    .WithEnvironment("Auth__BaseUrl", "http://localhost:5122");
+// <<< module:orders
+
 builder.Build().Run();

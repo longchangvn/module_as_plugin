@@ -1,0 +1,6 @@
+*
+!module_as_plugin/src/Shared/SharedKernel/
+!module_as_plugin/src/Aspire/ModulePlatform.ServiceDefaults/
+!modules/orders/api/
+**/bin/
+**/obj/

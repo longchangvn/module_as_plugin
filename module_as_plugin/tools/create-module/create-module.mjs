@@ -17,7 +17,10 @@ const DIGITS = ['ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', '
 const BASE_PORTS = [5100, 5121, 5122, 5173, 5174, 5175, 5176, 5177, 5201, 5202, 5203, 5432, 5433, 5434];
 const API_PORT_START = 5204;
 const WEB_PORT_START = 5178;
-const TYPES = ['remote', 'plugin'];
+const TYPES = ['remote', 'plugin', 'hybrid'];
+// UI packaged (web/) and served by the Module Host / API in its own process (see ModuleTypeNames).
+const HOST_UI = new Set(['plugin', 'hybrid']);
+const REMOTE_API = new Set(['remote', 'hybrid']);
 // Assemblies the Module Host provides (plus everything only they pull in, see stripHostShared).
 const HOST_SHARED = ['ModulePlatform.Plugin.Abstractions', 'SharedKernel'];
 
@@ -27,8 +30,12 @@ Usage: ${CLI} <command> [options]
 
 Commands:
   new <name>           Scaffold API + federation remote + manifest + parity test, then wire it in
-    --type remote|plugin   default: remote (own API process: sln/AppHost/compose/tests wiring);
-                           plugin = class library loaded by the Module Host (:5300), sln/tests wiring only
+    --type remote|plugin|hybrid
+                           default: remote (own API process: sln/AppHost/compose/tests wiring);
+                           plugin = class library loaded by the Module Host (:5300), sln/tests wiring only;
+                           hybrid = UI served by the Module Host, API in its own process; generated outside
+                                    the project folder in ../modules/<name>/ (api/, web/, manifest.yml),
+                                    wired into sln/AppHost (API only)/compose (API only)/tests
     --display-name <text>  default: Title Case of name
     --description <text>   default: "<Display Name> module."
     --owner <email>        default: platform-team@company.com
@@ -39,7 +46,7 @@ Commands:
     --perm-prefix <CODE>   default: derived from name (sample3 -> SAMPLE_THREE)
     --menu-order <n>       default: 50
     --no-wire              only generate files (no sln/AppHost/compose/test csproj edits)
-    --skip-install         skip npm install in modules/<name>/web
+    --skip-install         skip npm install in the module's web/
     --dry-run              print the plan, write nothing
     -y, --yes              no interactive prompts
   list                 List modules with their type and API/web ports
@@ -47,18 +54,19 @@ Commands:
                          remote: manifest.yml + README.md
                          plugin: + plugin/ (dotnet publish -c Release, host-provided assemblies removed)
                                  + web/ (npm run build output)
+                         hybrid: + web/ (npm run build output)
     --out <file>           output zip
-    --skip-build           plugin: dotnet publish --no-build, reuse existing web/dist
+    --skip-build           plugin: dotnet publish --no-build; plugin/hybrid: reuse existing web/dist
   publish <name>       Publish to the registry. remote: manifest JSON (POST /api/v1/platform/modules);
-                       plugin: always a package upload (POST /api/v1/platform/modules/package)
+                       plugin/hybrid: always a package upload (POST /api/v1/platform/modules/package)
     --package [file]       upload a package (built first unless a file is given)
     --gateway <url>        default http://localhost:5100 (env MODULE_GATEWAY)
     --token <jwt>          platform Admin JWT (env PLATFORM_TOKEN), or:
     --email <email>        default admin@local, with
     --password <pw>        (env PLATFORM_PASSWORD) to log in
-    --api-url <url>        remote only; default service.baseUrl, else http://localhost:<module API port>
+    --api-url <url>        remote/hybrid; default service.baseUrl, else http://localhost:<module API port>
   install <name> --tenant <id> [--version x.y.z]   Install for a tenant (same auth options)
-  remove <name> [-y]   Delete the module's generated folders and undo the wiring (remote or plugin)
+  remove <name> [-y]   Delete the module's generated folders and undo the wiring (any type)
   pack [--out <file>]  Zip this starter kit for distribution (default dist/create-module-kit.zip)
   help                 Show this help
 `;
@@ -117,6 +125,18 @@ function walk(dir, filter, out = []) {
   return out;
 }
 
+// Hybrid modules live outside the project folder: <parent of ModulePlatform.sln folder>/modules/<name>.
+const extModulesDir = (root) => path.join(path.dirname(root), 'modules');
+const modulesDirs = (root) => [path.join(root, 'modules'), extModulesDir(root)];
+const moduleDir = (root, name) => modulesDirs(root).map((d) => path.join(d, name)).find((d) => exists(path.join(d, 'manifest.yml'))) ?? null;
+const moduleBase = (root, type) => (type === 'hybrid' ? extModulesDir(root) : path.join(root, 'modules'));
+// .NET project folder of a module (remote: <Pascal>.Api, plugin: <Pascal>.Plugin, hybrid: api/<Pascal>.Api).
+const projectDir = (root, name, type) => type === 'hybrid'
+  ? path.join(extModulesDir(root), name, 'api', `${toPascal(name)}.Api`)
+  : path.join(root, 'src', 'Modules', toPascal(name), `${toPascal(name)}.${type === 'plugin' ? 'Plugin' : 'Api'}`);
+// MSBuild-style (backslash) relative path.
+const winRel = (from, to) => path.relative(from, to).split(path.sep).join('\\');
+
 const toPascal = (name) => name.split('-').map((s) => s[0].toUpperCase() + s.slice(1)).join('');
 const toTitle = (name) => name.split('-').map((s) => s[0].toUpperCase() + s.slice(1)).join(' ');
 const toCamel = (name) => { const p = toPascal(name); return p[0].toLowerCase() + p.slice(1); };
@@ -139,7 +159,7 @@ function usedPorts(root) {
   const ports = new Set(BASE_PORTS);
   const files = [
     ...walk(path.join(root, 'src'), (p) => p.endsWith('launchSettings.json') || p.endsWith('Program.cs')),
-    ...walk(path.join(root, 'modules'), (p) => /vite\.config\.ts$|package\.json$|manifest\.yml$/.test(p)),
+    ...modulesDirs(root).flatMap((d) => walk(d, (p) => /vite\.config\.ts$|package\.json$|manifest\.yml$|launchSettings\.json$/.test(p))),
     ...walk(path.join(root, 'apps'), (p) => /vite\.config\.ts$|package\.json$/.test(p)),
     path.join(root, 'docker-compose.yml'),
   ].filter(exists);
@@ -159,7 +179,7 @@ function nextFree(used, start) {
 
 function usedScopes(root) {
   const scopes = new Map();
-  for (const f of walk(path.join(root, 'modules'), (p) => p.endsWith('manifest.yml'))) {
+  for (const f of modulesDirs(root).flatMap((d) => walk(d, (p) => p.endsWith('manifest.yml')))) {
     const m = read(f).match(/^\s*scope:\s*(\S+)/m);
     if (m) scopes.set(m[1], rel(root, f));
   }
@@ -167,10 +187,12 @@ function usedScopes(root) {
 }
 
 function moduleApiDir(root, name) {
-  const hit = walk(path.join(root, 'src', 'Modules'), (p) => p.endsWith('ModuleEndpoints.cs'))
+  const hit = [path.join(root, 'src', 'Modules'), path.join(extModulesDir(root), name, 'api')]
+    .flatMap((d) => walk(d, (p) => p.endsWith('ModuleEndpoints.cs')))
     .find((p) => read(p).includes(`ModuleId = "${name}"`));
   if (hit) return path.dirname(path.dirname(hit));
-  const csproj = walk(path.join(root, 'src', 'Modules', toPascal(name)), (p) => p.endsWith('.Api.csproj'))[0];
+  const csproj = [path.join(root, 'src', 'Modules', toPascal(name)), path.join(extModulesDir(root), name, 'api')]
+    .flatMap((d) => walk(d, (p) => p.endsWith('.Api.csproj')))[0];
   return csproj ? path.dirname(csproj) : null;
 }
 
@@ -185,12 +207,13 @@ const moduleType = (m) => (moduleBlock(m).match(/^[ \t]+type:[ \t]*["']?([A-Za-z
 const moduleVersion = (m) => moduleBlock(m).match(/^[ \t]+version:[ \t]*["']?([^\s"']+)/m)?.[1];
 
 function loadManifest(root, name) {
-  const mf = path.join(root, 'modules', name, 'manifest.yml');
-  if (!exists(mf)) fail(`modules/${name}/manifest.yml not found`);
+  const dir = moduleDir(root, name);
+  if (!dir) fail(`manifest.yml for "${name}" not found in ${modulesDirs(root).map((d) => rel(root, d)).join(' or ')}`);
+  const mf = path.join(dir, 'manifest.yml');
   const text = read(mf);
   const type = moduleType(text);
-  if (!TYPES.includes(type)) fail(`unknown module.type "${type}" in modules/${name}/manifest.yml`);
-  return { file: mf, text, type, version: moduleVersion(text) ?? fail(`module.version missing in modules/${name}/manifest.yml`) };
+  if (!TYPES.includes(type)) fail(`unknown module.type "${type}" in ${rel(root, mf)}`);
+  return { dir, file: mf, text, type, version: moduleVersion(text) ?? fail(`module.version missing in ${rel(root, mf)}`) };
 }
 
 // ---------- templating ----------
@@ -200,24 +223,30 @@ function render(text, tokens) {
 }
 
 // *.template files are stored with a suffix so IDEs don't restore/build them in place.
-// Plugins: templates/plugin replaces templates/api; templates/module-plugin overrides files of templates/module.
-const PLUGIN_SKIP = new Set(['web/Dockerfile']);
+// Template layers per type: later layers override (or add) files of earlier ones.
+//   plugin: templates/plugin replaces templates/api; templates/module-plugin overrides templates/module.
+//   hybrid: templates/api + api-hybrid (Dockerfile for the out-of-project location);
+//           templates/module + module-plugin (host-served web build) + module-hybrid (manifest, README).
+const LAYERS = {
+  remote: { api: ['api'], module: ['module'] },
+  plugin: { api: ['plugin'], module: ['module', 'module-plugin'] },
+  hybrid: { api: ['api', 'api-hybrid'], module: ['module', 'module-plugin', 'module-hybrid'] },
+};
+const HOST_UI_SKIP = new Set(['web/Dockerfile']);
 function plan(root, t) {
-  const plugin = t.TYPE === 'plugin';
+  const layers = LAYERS[t.TYPE];
   const targets = [
-    [plugin ? 'plugin' : 'api', path.join(root, 'src', 'Modules', t.PASCAL, t.PROJECT)],
-    ['module', path.join(root, 'modules', t.MODULE_NAME)],
-    ['test', path.join(root, 'tests', 'SharedKernel.Tests', 'Modules')],
+    [layers.api, projectDir(root, t.MODULE_NAME, t.TYPE)],
+    [layers.module, path.join(moduleBase(root, t.TYPE), t.MODULE_NAME)],
+    [['test'], path.join(root, 'tests', 'SharedKernel.Tests', 'Modules')],
   ];
-  return targets.flatMap(([src, dest]) => walk(path.join(TEMPLATES, src), () => true).flatMap((f) => {
-    const r = path.relative(path.join(TEMPLATES, src), f);
-    if (plugin && src === 'module') {
-      if (PLUGIN_SKIP.has(r.split(path.sep).join('/'))) return [];
-      const override = path.join(TEMPLATES, 'module-plugin', r);
-      if (exists(override)) f = override;
-    }
-    return [{ from: f, to: path.join(dest, render(r, t).replace(/\.template$/, '')) }];
-  }));
+  return targets.flatMap(([srcs, dest]) => {
+    const files = new Map();
+    for (const src of srcs)
+      for (const f of walk(path.join(TEMPLATES, src), () => true)) files.set(path.relative(path.join(TEMPLATES, src), f), f);
+    return [...files].filter(([r]) => !(HOST_UI.has(t.TYPE) && HOST_UI_SKIP.has(r.split(path.sep).join('/'))))
+      .map(([r, f]) => ({ from: f, to: path.join(dest, render(r, t).replace(/\.template$/, '')) }));
+  });
 }
 
 // ---------- wiring (idempotent, marker-delimited where possible) ----------
@@ -261,61 +290,73 @@ function removeBlock(file, name, c) {
 
 function wire(root, t) {
   const steps = [];
-  const csprojRel = path.join('src', 'Modules', t.PASCAL, t.PROJECT, `${t.PROJECT}.csproj`);
+  const csproj = path.join(projectDir(root, t.MODULE_NAME, t.TYPE), `${t.PROJECT}.csproj`);
+  const csprojRel = path.relative(root, csproj);
 
   // 1. solution
   const sln = run('dotnet', ['sln', 'ModulePlatform.sln', 'add', csprojRel], root, { inherit: false });
   steps.push(sln.ok ? 'ModulePlatform.sln: project added'
     : `ModulePlatform.sln: SKIPPED (${sln.error ? 'dotnet not found' : (sln.stderr || sln.stdout || '').trim()}) -> run: dotnet sln ModulePlatform.sln add ${csprojRel}`);
 
-  // 2-3. own API process (remote only; plugins are served by the shared Module Host)
-  if (t.TYPE === 'remote') wireHosting(root, t, steps);
+  // 2-3. own API process (remote, hybrid; plugins are served by the shared Module Host)
+  if (REMOTE_API.has(t.TYPE)) wireHosting(root, t, csproj, steps);
 
   // 4. tests
-  addProjectReference(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'),
-    `..\\..\\src\\Modules\\${t.PASCAL}\\${t.PROJECT}\\${t.PROJECT}.csproj`);
+  const testsDir = path.join(root, 'tests', 'SharedKernel.Tests');
+  addProjectReference(path.join(testsDir, 'SharedKernel.Tests.csproj'), winRel(testsDir, csproj));
   steps.push('SharedKernel.Tests.csproj: ProjectReference added');
   return steps;
 }
 
-function wireHosting(root, t, steps) {
-  // 2. Aspire AppHost
+function wireHosting(root, t, csproj, steps) {
+  const hybrid = t.TYPE === 'hybrid';
+  // 2. Aspire AppHost (hybrid: API only, the UI is served by the Module Host)
   const appHostDir = path.join(root, 'src', 'Aspire', 'ModulePlatform.AppHost');
-  addProjectReference(path.join(appHostDir, 'ModulePlatform.AppHost.csproj'), `..\\..\\Modules\\${t.PASCAL}\\${t.PASCAL}.Api\\${t.PASCAL}.Api.csproj`);
+  addProjectReference(path.join(appHostDir, 'ModulePlatform.AppHost.csproj'), winRel(appHostDir, csproj));
   const programPath = path.join(appHostDir, 'Program.cs');
   const program = read(programPath);
   const [ps, pe] = marker(t.MODULE_NAME);
+  const web = hybrid ? '' : `
+// Federation remotes must be built (vite preview) — remoteEntry.js is not served by \`vite dev\`.
+var ${t.CAMEL}Web = builder.AddNpmApp("${t.MODULE_NAME}-web", "../../../modules/${t.MODULE_NAME}/web", "serve")
+    .WithEndpoint("http", e => { e.Port = ${t.WEB_PORT}; e.IsProxied = false; })
+    .WithExternalHttpEndpoints();
+`;
   if (!program.includes(ps)) {
     fs.writeFileSync(programPath, insertBefore(program, 'builder.Build().Run();', `${ps}
-var ${t.CAMEL} = builder.AddProject<Projects.${t.PASCAL}_Api>("${t.MODULE_NAME}")
+${hybrid ? '// Hybrid module: API process only; its UI is served by the Module Host (plugin-host).\n' : ''}var ${t.CAMEL} = builder.AddProject<Projects.${t.PASCAL}_Api>("${t.MODULE_NAME}")
     .WithEndpoint("http", e => { e.Port = ${t.API_PORT}; e.IsProxied = false; })
     .WithEnvironment("ASPNETCORE_URLS", "http://localhost:${t.API_PORT}")
     .WithReference(platform)
     .WithReference(auth)
     .WithEnvironment("Platform__BaseUrl", "http://localhost:5121")
     .WithEnvironment("Auth__BaseUrl", "http://localhost:5122");
-
-// Federation remotes must be built (vite preview) — remoteEntry.js is not served by \`vite dev\`.
-var ${t.CAMEL}Web = builder.AddNpmApp("${t.MODULE_NAME}-web", "../../../modules/${t.MODULE_NAME}/web", "serve")
-    .WithEndpoint("http", e => { e.Port = ${t.WEB_PORT}; e.IsProxied = false; })
-    .WithExternalHttpEndpoints();
-${pe}
+${web}${pe}
 
 `, programPath));
   }
-  steps.push('Aspire AppHost: ProjectReference + resources added');
+  steps.push(`Aspire AppHost: ProjectReference + ${hybrid ? 'API resource' : 'resources'} added`);
 
-  // 3. docker-compose
+  // 3. docker-compose (hybrid: build context = parent folder, which holds both the project and modules/)
   const composePath = path.join(root, 'docker-compose.yml');
   const compose = read(composePath);
   const [cs, ce] = marker(t.MODULE_NAME, '#');
+  const dockerfile = path.relative(hybrid ? path.dirname(root) : root, path.join(path.dirname(csproj), 'Dockerfile')).split(path.sep).join('/');
+  const webService = hybrid ? '' : `
+  ${t.MODULE_NAME}-web:
+    build:
+      context: .
+      dockerfile: modules/${t.MODULE_NAME}/web/Dockerfile
+    ports:
+      - "${t.WEB_PORT}:80"
+`;
   if (!compose.includes(cs)) {
     fs.writeFileSync(composePath, insertBefore(compose, '\nvolumes:', `
   ${cs}
   ${t.MODULE_NAME}:
     build:
-      context: .
-      dockerfile: src/Modules/${t.PASCAL}/${t.PASCAL}.Api/Dockerfile
+      context: ${hybrid ? '..' : '.'}
+      dockerfile: ${dockerfile}
     ports:
       - "${t.API_PORT}:8080"
     environment:
@@ -326,17 +367,10 @@ ${pe}
     depends_on:
       - platform
       - auth
-
-  ${t.MODULE_NAME}-web:
-    build:
-      context: .
-      dockerfile: modules/${t.MODULE_NAME}/web/Dockerfile
-    ports:
-      - "${t.WEB_PORT}:80"
-  ${ce}
+${webService}  ${ce}
 `, composePath));
   }
-  steps.push('docker-compose.yml: services added');
+  steps.push(`docker-compose.yml: ${hybrid ? 'API service' : 'services'} added`);
 }
 
 // ---------- commands ----------
@@ -348,7 +382,7 @@ async function cmdNew(root, opts) {
   if (RESERVED.has(name)) fail(`"${name}" is a reserved name`);
 
   const pascal = toPascal(name);
-  if (exists(path.join(root, 'modules', name))) fail(`modules/${name} already exists`);
+  for (const d of modulesDirs(root)) if (exists(path.join(d, name))) fail(`${rel(root, path.join(d, name))} already exists`);
   if (exists(path.join(root, 'src', 'Modules', pascal))) fail(`src/Modules/${pascal} already exists`);
 
   let displayName = opts.displayName ?? toTitle(name);
@@ -398,26 +432,37 @@ async function cmdNew(root, opts) {
   const menuOrder = Number(opts.menuOrder ?? 50);
   if (!Number.isInteger(menuOrder)) fail('--menu-order must be an integer');
 
+  const hybrid = type === 'hybrid';
   const project = `${pascal}.${plugin ? 'Plugin' : 'Api'}`;
+  const projDir = projectDir(root, name, type);
+  const modDir = path.join(moduleBase(root, type), name);
   const tokens = {
     MODULE_NAME: name, PASCAL: pascal, CAMEL: toCamel(name), DISPLAY_NAME: displayName,
     DESCRIPTION: description, DESCRIPTION_YAML: JSON.stringify(description), OWNER: owner,
     CATEGORY: category, ICON: icon, API_PORT: String(apiPort ?? ''), WEB_PORT: String(webPort),
     SCOPE: scope, PERM: perm, CSS: `mod-${name}`, MENU_ORDER: String(menuOrder),
     TYPE: type, PROJECT: project,
+    // Location-dependent paths (hybrid modules live outside the project folder).
+    SRC_REL: winRel(projDir, path.join(root, 'src')),
+    MODULES_PATH: path.relative(root, moduleBase(root, type)).split(path.sep).map((s) => JSON.stringify(s)).join(', '),
+    PROJECT_DIR: path.basename(root),
   };
   const files = plan(root, tokens);
   const clash = files.find((f) => exists(f.to));
   if (clash) fail(`${rel(root, clash.to)} already exists`);
 
-  log(`Module      : ${name} (${displayName})${plugin ? '   type: plugin' : ''}`);
+  log(`Module      : ${name} (${displayName})${type === 'remote' ? '' : `   type: ${type}`}`);
+  log(`Location    : ${modDir}`);
   log(`Project     : ${project}   scope: ${scope}   permissions: ${perm}_DATA_VIEW, ${perm}_DATA_PROTECTED`);
-  log(plugin ? `Ports       : API via Module Host :5300 (/plugins/${name}), remote ${webPort} (local dev only)` : `Ports       : API ${apiPort}, remote ${webPort}`);
+  log(plugin ? `Ports       : API via Module Host :5300 (/plugins/${name}), remote ${webPort} (local dev only)`
+    : hybrid ? `Ports       : API ${apiPort}, UI via Module Host :5300 (/plugin-assets/${name}/<version>/), remote ${webPort} (local dev only)`
+      : `Ports       : API ${apiPort}, remote ${webPort}`);
   log(`Files (${files.length}):`);
   for (const f of files) log(`  + ${rel(root, f.to)}`);
   if (opts.dryRun) {
     log(opts.noWire ? '\n(dry run, no wiring)' : plugin ? '\nWould wire: ModulePlatform.sln, SharedKernel.Tests.csproj (no AppHost/compose: served by the Module Host)'
-      : '\nWould wire: ModulePlatform.sln, AppHost csproj + Program.cs, docker-compose.yml, SharedKernel.Tests.csproj');
+      : hybrid ? '\nWould wire: ModulePlatform.sln, AppHost csproj + Program.cs (API only), docker-compose.yml (API only), SharedKernel.Tests.csproj'
+        : '\nWould wire: ModulePlatform.sln, AppHost csproj + Program.cs, docker-compose.yml, SharedKernel.Tests.csproj');
     return;
   }
 
@@ -433,9 +478,23 @@ async function cmdNew(root, opts) {
   }
 
   if (!opts.skipInstall) {
-    log(`\nnpm install in modules/${name}/web ...`);
-    if (!run('npm', ['install', '--no-audit', '--no-fund'], path.join(root, 'modules', name, 'web')).ok)
+    log(`\nnpm install in ${rel(root, path.join(modDir, 'web'))} ...`);
+    if (!run('npm', ['install', '--no-audit', '--no-fund'], path.join(modDir, 'web')).ok)
       log('  ! npm install failed — run it manually.');
+  }
+
+  if (hybrid) {
+    log(`
+Done. Next steps (from ${path.basename(root)}/):
+  dotnet build ModulePlatform.sln && dotnet test ModulePlatform.sln
+  dotnet run --project src/Aspire/ModulePlatform.AppHost          # or standalone:
+  dotnet run --project ${rel(root, projDir)}   # :${apiPort}
+  ${CLI} package ${name}                     # dist/modules/${name}-1.0.0.zip (manifest + README + web/)
+  ${CLI} publish ${name} --password <pw>     # builds + uploads the package (artifactApiUrl = API :${apiPort})
+  ${CLI} install ${name} --tenant <TENANT_ID> --password <pw>
+The Module Host (:5300) serves the UI under /plugin-assets/${name}/<version>/; the gateway routes /api/v1/${name}/* to the API.
+Then open Tenant Admin http://localhost:5175 -> Home -> ${displayName}.`);
+    return;
   }
 
   if (plugin) {
@@ -461,10 +520,10 @@ Then open Tenant Admin http://localhost:5175 -> Home -> ${displayName}.`);
 }
 
 function cmdList(root) {
-  const modulesDir = path.join(root, 'modules');
-  const dirs = exists(modulesDir) ? fs.readdirSync(modulesDir, { withFileTypes: true }).filter((d) => d.isDirectory()) : [];
+  const dirs = modulesDirs(root).filter(exists).flatMap((modulesDir) =>
+    fs.readdirSync(modulesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => ({ modulesDir, name: d.name })));
   const rows = [['NAME', 'TYPE', 'VERSION', 'SCOPE', 'API', 'REMOTE']];
-  for (const d of dirs) {
+  for (const { modulesDir, ...d } of dirs) {
     const mf = path.join(modulesDir, d.name, 'manifest.yml');
     if (!exists(mf)) continue;
     const m = read(mf);
@@ -518,7 +577,8 @@ async function cmdPublish(root, opts) {
   if (!name) fail('usage: publish <name> [--package [file]]');
   const m = loadManifest(root, name);
   const plugin = m.type === 'plugin';
-  const usePackage = plugin || opts.package !== undefined;
+  // plugin/hybrid UIs are served from the package's web/, so they are always uploaded as a package.
+  const usePackage = HOST_UI.has(m.type) || opts.package !== undefined;
   let apiUrl;
   if (plugin) { if (opts.apiUrl) log('note: --api-url is ignored for plugin modules.'); }
   else {
@@ -551,14 +611,14 @@ function cmdPackage(root, opts) {
   log(`Packaged ${rel(process.cwd(), out)} (${m.type} ${name}@${m.version})`);
 }
 
-// Zip layout (SharedKernel.ModulePackage): manifest.yml, README.md?, plugin/** (plugin only), web/**.
+// Zip layout (SharedKernel.ModulePackage): manifest.yml, README.md?, plugin/** (plugin only), web/** (plugin/hybrid).
 function packageModule(root, name, m, opts) {
   const out = path.resolve(opts.out ?? path.join(root, 'dist', 'modules', `${name}-${m.version}.zip`));
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), `create-module-${name}-`));
   const clean = () => fs.rmSync(staging, { recursive: true, force: true });
   try {
     fs.copyFileSync(m.file, path.join(staging, 'manifest.yml'));
-    const readme = path.join(root, 'modules', name, 'README.md');
+    const readme = path.join(m.dir, 'README.md');
     if (exists(readme)) fs.copyFileSync(readme, path.join(staging, 'README.md'));
     if (m.type === 'plugin') {
       const project = `${toPascal(name)}.Plugin`;
@@ -572,21 +632,20 @@ function packageModule(root, name, m, opts) {
       log(`  host-provided, not packaged: ${removed.join(', ') || '(none in publish output)'}`);
       const assembly = m.text.match(/^[ \t]+assembly:[ \t]*["']?([^\s"'#]+)/m)?.[1];
       if (!assembly || !exists(path.join(pluginOut, assembly))) throw new Error(`plugin.assembly "${assembly ?? ''}" not found in the publish output`);
-
-      const web = path.join(root, 'modules', name, 'web');
-      if (exists(web)) {
-        if (!opts.skipBuild) {
-          if (!exists(path.join(web, 'node_modules'))) {
-            log(`npm install in ${rel(root, web)} ...`);
-            if (!run('npm', ['install', '--no-audit', '--no-fund'], web).ok) throw new Error('npm install failed');
-          }
-          log(`npm run build in ${rel(root, web)} ...`);
-          if (!run('npm', ['run', 'build'], web).ok) throw new Error('npm run build failed');
+    }
+    const web = path.join(m.dir, 'web');
+    if (HOST_UI.has(m.type) && exists(web)) {
+      if (!opts.skipBuild) {
+        if (!exists(path.join(web, 'node_modules'))) {
+          log(`npm install in ${rel(root, web)} ...`);
+          if (!run('npm', ['install', '--no-audit', '--no-fund'], web).ok) throw new Error('npm install failed');
         }
-        const dist = path.join(web, 'dist');
-        if (!exists(path.join(dist, 'assets', 'remoteEntry.js'))) throw new Error(`${rel(root, dist)}/assets/remoteEntry.js not found (build the web app)`);
-        fs.cpSync(dist, path.join(staging, 'web'), { recursive: true });
+        log(`npm run build in ${rel(root, web)} ...`);
+        if (!run('npm', ['run', 'build'], web).ok) throw new Error('npm run build failed');
       }
+      const dist = path.join(web, 'dist');
+      if (!exists(path.join(dist, 'assets', 'remoteEntry.js'))) throw new Error(`${rel(root, dist)}/assets/remoteEntry.js not found (build the web app)`);
+      fs.cpSync(dist, path.join(staging, 'web'), { recursive: true });
     }
     fs.mkdirSync(path.dirname(out), { recursive: true });
     if (exists(out)) fs.rmSync(out);
@@ -652,7 +711,7 @@ async function cmdRemove(root, opts) {
   if (!name || !/^[a-z][a-z0-9-]{2,49}$/.test(name)) fail('usage: remove <name>');
   const pascal = toPascal(name);
   const targets = [
-    path.join(root, 'modules', name),
+    ...modulesDirs(root).map((d) => path.join(d, name)),
     path.join(root, 'src', 'Modules', pascal),
     path.join(root, 'tests', 'SharedKernel.Tests', 'Modules', `${pascal}ModuleTests.cs`),
   ].filter(exists);
@@ -665,15 +724,18 @@ async function cmdRemove(root, opts) {
     if (!ok) fail('aborted');
   }
   const slnPath = path.join(root, 'ModulePlatform.sln');
-  for (const project of [`${pascal}.Api`, `${pascal}.Plugin`]) {
-    const csprojRel = path.join('src', 'Modules', pascal, project, `${project}.csproj`);
+  for (const type of TYPES) {
+    const dir = projectDir(root, name, type);
+    const project = path.basename(dir);
+    const csprojRel = path.relative(root, path.join(dir, `${project}.csproj`));
     if (exists(path.join(root, csprojRel)) || read(slnPath).includes(`${project}.csproj`))
       run('dotnet', ['sln', 'ModulePlatform.sln', 'remove', csprojRel], root, { inherit: false });
-    removeLine(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'), `\\Modules\\${pascal}\\${project}\\`);
   }
+  for (const project of [`${pascal}.Api`, `${pascal}.Plugin`])
+    removeLine(path.join(root, 'tests', 'SharedKernel.Tests', 'SharedKernel.Tests.csproj'), `\\${project}\\${project}.csproj"`);
   removeSolutionFolder(slnPath, pascal);
   const appHost = path.join(root, 'src', 'Aspire', 'ModulePlatform.AppHost');
-  removeLine(path.join(appHost, 'ModulePlatform.AppHost.csproj'), `\\Modules\\${pascal}\\${pascal}.Api\\`);
+  removeLine(path.join(appHost, 'ModulePlatform.AppHost.csproj'), `\\${pascal}.Api\\${pascal}.Api.csproj"`);
   removeBlock(path.join(appHost, 'Program.cs'), name, '//');
   removeBlock(path.join(root, 'docker-compose.yml'), name, '#');
   for (const t of targets) fs.rmSync(t, { recursive: true, force: true });

@@ -1,0 +1,77 @@
+# manifest.yml — Orders (hybrid module, scaffolded by tools/create-module).
+# UI: packaged web/ served by the Module Host. API: standalone host (artifactApiUrl / service.baseUrl).
+manifestVersion: "1.0"
+
+module:
+  name: orders
+  type: hybrid
+  displayName: Orders
+  description: "Orders module."
+  version: 1.0.0
+  owner: platform-team@company.com
+  license: proprietary
+  icon: box
+  category: ops
+
+dependencies: []
+
+service:
+  healthCheck: /healthz
+  readinessCheck: /readyz
+  openapiUrl: /swagger/v1/swagger.json
+
+frontend:
+  remoteUrl: ""
+  scope: orders_remote
+  modulePrefix: /orders
+  routes:
+    - path: /orders
+      exposes: ./Page
+      requiredPermission: null
+      menuId: orders
+  menus:
+    - id: orders
+      parentId: null
+      title: Orders
+      icon: box
+      route: /orders
+      requiredPermission: null
+      order: 50
+  uiPermissions: [ORDERS_DATA_PROTECTED]
+
+api:
+  routes:
+    - upstream: /api/v1/orders/{rest}
+      downstream: /api/v1/{rest}
+      methods: [GET]
+      auth: true
+      requiredPermission: null
+      priority: 10
+  seed:
+    roles:
+      - name: Orders Viewer
+        description: Can view Orders protected data
+        isSystem: true
+    permissions:
+      - code: ORDERS_DATA_VIEW
+        object: ORDERS_DATA
+        action: VIEW
+        name: View Orders data
+        isMenuAccess: true
+      - code: ORDERS_DATA_PROTECTED
+        object: ORDERS_DATA
+        action: PROTECTED
+        name: View Orders protected data
+        isMenuAccess: false
+    menus: []
+    userRoles: []
+    rolePermissions:
+      - roleName: Orders Viewer
+        permissions: [ORDERS_DATA_VIEW, ORDERS_DATA_PROTECTED]
+    userAdditionalPermissions: []
+    users: []
+    gatewayRules: []
+
+upgrade:
+  notes: "Initial release."
+  migrateEndpoint: /internal/migrate

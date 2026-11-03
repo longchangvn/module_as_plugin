@@ -1,0 +1,6 @@
+*
+!__PROJECT_DIR__/src/Shared/SharedKernel/
+!__PROJECT_DIR__/src/Aspire/ModulePlatform.ServiceDefaults/
+!modules/__MODULE_NAME__/api/
+**/bin/
+**/obj/

@@ -77,6 +77,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Reports", "Reports", "{3DF5
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Reports.Plugin", "src\Modules\Reports\Reports.Plugin\Reports.Plugin.csproj", "{72303008-2EE5-493A-A020-76CD39F8C42A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orders.Api", "..\modules\orders\api\Orders.Api\Orders.Api.csproj", "{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -351,6 +353,18 @@ Global
 		{72303008-2EE5-493A-A020-76CD39F8C42A}.Release|x64.Build.0 = Release|Any CPU
 		{72303008-2EE5-493A-A020-76CD39F8C42A}.Release|x86.ActiveCfg = Release|Any CPU
 		{72303008-2EE5-493A-A020-76CD39F8C42A}.Release|x86.Build.0 = Release|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Debug|x64.Build.0 = Debug|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Debug|x86.Build.0 = Debug|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Release|x64.ActiveCfg = Release|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Release|x64.Build.0 = Release|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Release|x86.ActiveCfg = Release|Any CPU
+		{B6FFA85C-E7B2-4E5B-8E48-807A792BD65B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

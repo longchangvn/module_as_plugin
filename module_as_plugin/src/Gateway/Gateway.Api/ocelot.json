@@ -71,48 +71,6 @@
         "serviceId": "platform",
         "source": "baseline"
       }
-    },
-    {
-      "Key": "rt_sample1_4da90863",
-      "UpstreamPathTemplate": "/api/v1/sample1/{rest}",
-      "UpstreamHttpMethod": [
-        "GET"
-      ],
-      "DownstreamPathTemplate": "/api/v1/{rest}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5202
-        }
-      ],
-      "Priority": 10,
-      "Metadata": {
-        "serviceId": "sample1",
-        "source": "module-install",
-        "managedBy": "module:sample1"
-      }
-    },
-    {
-      "Key": "rt_reports_26c03c97",
-      "UpstreamPathTemplate": "/api/v1/reports/{rest}",
-      "UpstreamHttpMethod": [
-        "GET"
-      ],
-      "DownstreamPathTemplate": "/plugins/reports/api/v1/{rest}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 5300
-        }
-      ],
-      "Priority": 10,
-      "Metadata": {
-        "serviceId": "reports",
-        "source": "module-install",
-        "managedBy": "module:reports"
-      }
     }
   ],
   "GlobalConfiguration": {
